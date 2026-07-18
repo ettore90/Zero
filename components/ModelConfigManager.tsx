@@ -1,0 +1,1 @@
+// Functionality moved to SettingsModal.tsx

@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
+    <title>%VITE_APP_DISPLAY_NAME%</title>
+    <link rel="icon" type="image/png" href="%BASE_URL%deep-learning.png">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow/dist/style.css" />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+      /* Fix tablet/mobile viewport issues where keyboard pushes layout up/creates whitespace */
+      html, body {
+        height: 100%;
+        width: 100%;
+        position: fixed; /* Locks the viewport to prevent scroll-away */
+        overflow: hidden;
+        overscroll-behavior-y: none;
+      }
+
+      #app-startup-fatal,
+      #root {
+        height: 100%;
+        width: 100%;
+      }
+
+      #root {
+        overflow: hidden;
+      }
+
+      #app-startup-fatal[hidden] {
+        display: none !important;
+      }
+
+      /* Default (Amber) */
+      :root {
+        --nebula-50: #fffbeb;
+        --nebula-100: #fef3c7;
+        --nebula-500: #f59e0b;
+        --nebula-600: #d97706;
+        --nebula-800: #92400e;
+        --nebula-900: #78350f;
+      }
+
+      /* Green (Emerald) */
+      body.theme-green {
+        --nebula-50: #ecfdf5;
+        --nebula-100: #d1fae5;
+        --nebula-500: #10b981;
+        --nebula-600: #059669;
+        --nebula-800: #065f46;
+        --nebula-900: #064e3b;
+      }
+
+      /* Blue (Sky) */
+      body.theme-blue {
+        --nebula-50: #f0f9ff;
+        --nebula-100: #e0f2fe;
+        --nebula-500: #0ea5e9;
+        --nebula-600: #0284c7;
+        --nebula-800: #075985;
+        --nebula-900: #0c4a6e;
+      }
+
+      /* Indigo (Modern IDE) */
+      body.theme-indigo {
+        --nebula-50: #eef2ff;
+        --nebula-100: #e0e7ff;
+        --nebula-500: #6366f1;
+        --nebula-600: #4f46e5;
+        --nebula-800: #3730a3;
+        --nebula-900: #312e81;
+      }
+
+      /* Amber (Legacy) */
+      body.theme-amber {
+        --nebula-50: #fffbeb;
+        --nebula-100: #fef3c7;
+        --nebula-500: #f59e0b;
+        --nebula-600: #d97706;
+        --nebula-800: #92400e;
+        --nebula-900: #78350f;
+      }
+
+      /* Purple (Violet) */
+      body.theme-purple {
+        --nebula-50: #f5f3ff;
+        --nebula-100: #ede9fe;
+        --nebula-500: #8b5cf6;
+        --nebula-600: #7c3aed;
+        --nebula-800: #5b21b6;
+        --nebula-900: #4c1d95;
+      }
+
+      /* Orange */
+      body.theme-orange {
+        --nebula-50: #fff7ed;
+        --nebula-100: #ffedd5;
+        --nebula-500: #f97316;
+        --nebula-600: #ea580c;
+        --nebula-800: #9a3412;
+        --nebula-900: #7c2d12;
+      }
+
+      /* Monaco current-line highlight: keep only the native background without any left border/decal */
+      .monaco-editor {
+        --vscode-editor-lineHighlightBorder: transparent;
+        --vscode-editorLineHighlightBorder: transparent;
+      }
+      .monaco-editor .current-line,
+      .monaco-editor .margin-view-overlays .current-line,
+      .monaco-editor .margin-view-overlays .current-line-margin {
+        border: 0 !important;
+        box-shadow: none !important;
+        outline: none !important;
+      }
+      .monaco-editor .current-line::before,
+      .monaco-editor .margin-view-overlays .current-line::before,
+      .monaco-editor .margin-view-overlays .current-line-margin::before {
+        content: none !important;
+      }
+
+      /* Custom scrollbar for better tablet experience */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+      }
+      .dark ::-webkit-scrollbar-thumb {
+        background: #3f3f46;
+      }
+
+      /* Table Responsive Styling */
+      .prose table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        border-collapse: collapse;
+      }
+      .prose thead {
+        border-bottom: 2px solid #e2e8f0;
+      }
+      .dark .prose thead {
+        border-bottom-color: #334155;
+      }
+      .prose th, .prose td {
+        padding: 0.75rem 1rem;
+        border: 1px solid #e2e8f0;
+      }
+      .dark .prose th, .dark .prose td {
+        border-color: #334155;
+      }
+
+      /* Dark mode: neutralize light backgrounds inside prose (generated content) */
+      .dark .prose *:not(pre):not(code) {
+        background-color: transparent !important;
+        background: transparent !important;
+      }
+      .dark .prose [style*="background"] {
+        background-color: transparent !important;
+        background: transparent !important;
+        color: #e2e8f0 !important;
+      }
+      .dark .prose pre {
+        background-color: #0f172a !important;
+        background: #0f172a !important;
+      }
+      .dark .prose code:not(pre code) {
+        background-color: rgba(255,255,255,0.08) !important;
+        color: #e2e8f0 !important;
+      }
+      .dark .prose blockquote {
+        border-left-color: #475569;
+        color: #94a3b8;
+      }
+    </style>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            colors: {
+              nebula: {
+                50: 'var(--nebula-50)',
+                100: 'var(--nebula-100)',
+                500: 'var(--nebula-500)',
+                600: 'var(--nebula-600)',
+                800: 'var(--nebula-800)',
+                900: 'var(--nebula-900)',
+              },
+              dark: {
+                800: '#18181b',
+                900: '#09090b',
+                950: '#020203',
+              }
+            }
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^18.2.0",
+    "react-dom": "https://esm.sh/react-dom@^18.2.0",
+    "react-dom/": "https://esm.sh/react-dom@^18.2.0/",
+    "react/": "https://esm.sh/react@^18.2.0/",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^4.2.0",
+    "vite": "https://esm.sh/vite@^5.2.0",
+    "react-markdown": "https://esm.sh/react-markdown@9.0.1",
+    "remark-gfm": "https://esm.sh/remark-gfm@4.0.0",
+    "express": "https://esm.sh/express@^4.19.2",
+    "path": "https://esm.sh/path@^0.12.7",
+    "url": "https://esm.sh/url@^0.11.0",
+    "cors": "https://esm.sh/cors@^2.8.5",
+    "fs/": "https://esm.sh/fs@^0.0.1-security/",
+    "fs": "https://esm.sh/fs@^0.0.1-security",
+    "reactflow": "https://esm.sh/reactflow@11.10.1?external=react,react-dom",
+    "child_process": "https://esm.sh/child_process@^1.0.2",
+    "@monaco-editor/react": "https://esm.sh/@monaco-editor/react@4.6.0?deps=react@18.2.0,react-dom@18.2.0",
+    "reactflow/": "https://esm.sh/reactflow@^11.11.4/"
+  }
+}
+</script>
+</head>
+  <body class="bg-gray-100 dark:bg-dark-950 text-slate-900 dark:text-slate-100 h-full overflow-hidden selection:bg-nebula-500 selection:text-white transition-colors duration-300">
+    <div id="app-startup-fatal" hidden style="position:fixed;inset:0;z-index:2147483647;background:#0f172a;color:#e2e8f0;padding:24px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;overflow:auto;">
+      <div style="max-width:960px;margin:0 auto;border:1px solid rgba(148,163,184,0.35);border-radius:12px;padding:24px;background:rgba(15,23,42,0.92);box-shadow:0 20px 50px rgba(0,0,0,0.35);">
+        <h1 id="app-startup-fatal-title" style="margin:0 0 12px;font-size:20px;color:#f8fafc;">Application failed to start</h1>
+        <p id="app-startup-fatal-message" style="margin:0 0 16px;color:#cbd5e1;">A startup error occurred before the app could render.</p>
+        <pre id="app-startup-fatal-breadcrumbs" style="margin:0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5;color:#e2e8f0;"></pre>
+      </div>
+    </div>
+    <div id="root" class="h-full"></div>
+    <script>
+      (function () {
+        try {
+          var storageKey = 'app_startup_logs';
+          var maxEntries = 80;
+          var safeNow = function () {
+            try { return new Date().toISOString(); } catch { return ''; }
+          };
+          var safeStringify = function (value) {
+            try {
+              if (typeof value === 'string') return value;
+              return JSON.stringify(value);
+            } catch {
+              try { return String(value); } catch { return '[unserializable]'; }
+            }
+          };
+          var readLogs = function () {
+            try {
+              var raw = window.localStorage.getItem(storageKey);
+              var parsed = raw ? JSON.parse(raw) : [];
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [];
+            }
+          };
+          var writeLogs = function (entries) {
+            try {
+              window.localStorage.setItem(storageKey, JSON.stringify(entries.slice(-maxEntries)));
+            } catch {}
+          };
+          var showFatal = function (title, message, extra) {
+            try {
+              var root = document.getElementById('app-startup-fatal');
+              if (!root) return;
+              var titleEl = document.getElementById('app-startup-fatal-title');
+              var messageEl = document.getElementById('app-startup-fatal-message');
+              var breadcrumbsEl = document.getElementById('app-startup-fatal-breadcrumbs');
+              if (titleEl) titleEl.textContent = title || 'Application failed to start';
+              if (messageEl) messageEl.textContent = message || 'A startup error occurred before the app could render.';
+              var lines = readLogs().slice(-8).map(function (entry) {
+                try {
+                  return entry.event + (entry.details ? ' ' + safeStringify(entry.details) : '');
+                } catch {
+                  return safeStringify(entry);
+                }
+              });
+              if (extra) lines.push(extra);
+              if (breadcrumbsEl) breadcrumbsEl.textContent = lines.join('\n');
+              root.hidden = false;
+            } catch {}
+          };
+          var log = function (event, details) {
+            try {
+              var entry = { ts: safeNow(), event: event, details: details || '' };
+              try { console.log('[app-startup]', entry); } catch {}
+              var entries = readLogs();
+              entries.push(entry);
+              writeLogs(entries);
+            } catch {}
+          };
+          var isBenignMonacoCancellation = function (value) {
+            try {
+              var serialized = safeStringify(value && (value.stack || value.message || value));
+              if (!serialized) return false;
+              var lower = String(serialized).toLowerCase();
+              return lower.indexOf('monaco-editor') !== -1 && (
+                lower.indexOf('cancel@') !== -1 ||
+                lower.indexOf('"cancel"') !== -1 ||
+                lower.indexOf(' cancelled') !== -1 ||
+                lower.indexOf(' canceled') !== -1 ||
+                lower === 'cancel'
+              );
+            } catch {
+              return false;
+            }
+          };
+          var lastBenignMonacoCancellationAt = 0;
+          var isLikelyFollowupMonacoScriptError = function (event) {
+            try {
+              var message = String((event && event.message) || '').trim().toLowerCase();
+              var source = String((event && event.filename) || '').trim();
+              var hasStructuredError = !!(event && event.error);
+              var ageMs = Math.abs(Date.now() - lastBenignMonacoCancellationAt);
+              return message === 'script error.' && !source && !hasStructuredError && ageMs <= 2500;
+            } catch {
+              return false;
+            }
+          };
+          var hasReactRenderedSuccessfully = function () {
+            try {
+              return readLogs().some(function (entry) { return entry && entry.event === 'index.tsx:react-render:success'; });
+            } catch {
+              return false;
+            }
+          };
+          var isGenericCrossOriginScriptError = function (event) {
+            try {
+              var message = String((event && event.message) || '').trim().toLowerCase();
+              var source = String((event && event.filename) || '').trim();
+              var hasStructuredError = !!(event && event.error);
+              return message === 'script error.' && !source && !hasStructuredError;
+            } catch {
+              return false;
+            }
+          };
+          window.__APP_STARTUP_LOG__ = log;
+          window.__APP_STARTUP_FATAL__ = showFatal;
+          log('index.html:bootstrap', { href: window.location && window.location.href });
+          window.addEventListener('error', function (event) {
+            var message = (event && event.message) || 'Unknown startup error';
+            var errorValue = event && event.error && (event.error.stack || event.error.message || event.error);
+            if (isBenignMonacoCancellation(errorValue)) {
+              log('window:error:ignored-benign-monaco-cancel', {
+                message: message,
+                source: event && event.filename,
+              });
+              return;
+            }
+            if (isLikelyFollowupMonacoScriptError(event)) {
+              log('window:error:ignored-followup-monaco-script-error', {
+                message: message,
+                source: event && event.filename,
+                ageMs: Math.abs(Date.now() - lastBenignMonacoCancellationAt),
+              });
+              return;
+            }
+            if (isGenericCrossOriginScriptError(event)) {
+              if (hasReactRenderedSuccessfully()) {
+                log('window:error:post-render-generic-script-error', {
+                  message: message,
+                  source: event && event.filename,
+                  line: event && event.lineno,
+                  column: event && event.colno,
+                });
+                return;
+              }
+              if (Math.abs(Date.now() - lastBenignMonacoCancellationAt) <= 5000) {
+                log('window:error:ignored-generic-script-error-after-monaco-cancel', {
+                  message: message,
+                  source: event && event.filename,
+                  ageMs: Math.abs(Date.now() - lastBenignMonacoCancellationAt),
+                });
+                return;
+              }
+            }
+            log('window:error', {
+              message: message,
+              source: event && event.filename,
+              line: event && event.lineno,
+              column: event && event.colno,
+              error: safeStringify(errorValue),
+            });
+            showFatal('Application failed to start', message);
+          });
+          window.addEventListener('unhandledrejection', function (event) {
+            var reason = event && event.reason;
+            if (isBenignMonacoCancellation(reason)) {
+              lastBenignMonacoCancellationAt = Date.now();
+              try { if (event && typeof event.preventDefault === 'function') event.preventDefault(); } catch {}
+              log('window:unhandledrejection:ignored-benign-monaco-cancel', {
+                reason: safeStringify(reason && (reason.stack || reason.message || reason)),
+              });
+              return;
+            }
+            var message = (reason && reason.message) || (typeof reason === 'string' ? reason : 'Unhandled promise rejection during startup');
+            log('window:unhandledrejection', {
+              reason: safeStringify(reason && (reason.stack || reason.message || reason)),
+            });
+            showFatal('Application failed to start', message);
+          });
+        } catch {}
+      })();
+    </script>
+    <script type="module" src="./index.tsx"></script>
+  </body>
+</html>

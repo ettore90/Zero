@@ -1,0 +1,36 @@
+# Test artifacts
+test_*.mjs
+test_*.json
+SIMPLE_TEST.txt
+
+# Test state
+state/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.local
+
+# Local tooling / noise
+.venv/
+.venv-pdf/
+logs/
+*.log
+coverage/
+tmp/
+temp/
+.cache/
+.next/

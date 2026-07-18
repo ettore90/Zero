@@ -1,0 +1,44 @@
+{
+  "name": "zero",
+  "private": true,
+  "version": "1.6.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit",
+    "start:server": "node server.js",
+    "test:dist": "node scripts/test-dist.mjs",
+    "test:runtime": "node scripts/test-runtime-smoke.mjs",
+    "test:logs": "node scripts/test-container-logs.mjs",
+    "test:image-dist": "node scripts/test-image-dist.mjs",
+    "test:baseline": "npm run test:dist && npm run test:logs && npm run test:runtime",
+    "test:promotion": "node scripts/test-promotion.mjs",
+    "test:release:image-dist": "node scripts/release-image-dist.mjs",
+    "test:release:logs": "node scripts/release-container-logs.mjs",
+    "test:release:runtime": "node scripts/release-runtime-smoke.mjs",
+    "test:release": "node scripts/release-gate.mjs"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "reactflow": "^11.10.1",
+    "@monaco-editor/react": "^4.6.0",
+    "better-sqlite3": "^9.4.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "typescript": "^5.2.2",
+    "vite": "^5.2.0"
+  }
+}

@@ -1,0 +1,1 @@
+Vector Memory Endpoints section extracted from legacy server.js.

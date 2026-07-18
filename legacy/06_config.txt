@@ -1,0 +1,1 @@
+Global config section extracted from legacy server.js.
