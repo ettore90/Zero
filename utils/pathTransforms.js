@@ -13,14 +13,14 @@ export function containerToHost(p, env) {
   const containerHome = normalizeSlashes(env?.CONTAINER_HOME || '/host_system');
   const hostHome = normalizeSlashes(env?.HOST_HOME || '/home/ettore');
   const containerWorkspace = normalizeSlashes(env?.CONTAINER_APP_ROOT || '/uby');
-  const hostWorkspace = normalizeSlashes(env?.HOST_WORKSPACE_ROOT || '/home/ettore/Software/Uby');
+  const hostWorkspace = normalizeSlashes(env?.HOST_WORKSPACE_ROOT || '');
 
   const np = normalizeSlashes(p);
   if (hasPathPrefix(np, containerHome)) {
     return hostHome + np.slice(containerHome.length);
   }
   if (hasPathPrefix(np, containerWorkspace)) {
-    return hostWorkspace + np.slice(containerWorkspace.length);
+    return hostWorkspace ? hostWorkspace + np.slice(containerWorkspace.length) : p;
   }
 
   return p;
@@ -31,13 +31,13 @@ export function hostToContainer(p, env) {
   const containerHome = normalizeSlashes(env?.CONTAINER_HOME || '/host_system');
   const hostHome = normalizeSlashes(env?.HOST_HOME || '/home/ettore');
   const containerWorkspace = normalizeSlashes(env?.CONTAINER_APP_ROOT || '/uby');
-  const hostWorkspace = normalizeSlashes(env?.HOST_WORKSPACE_ROOT || '/home/ettore/Software/Uby');
+  const hostWorkspace = normalizeSlashes(env?.HOST_WORKSPACE_ROOT || '');
 
   const np = normalizeSlashes(p);
   if (hasPathPrefix(np, hostHome)) {
     return containerHome + np.slice(hostHome.length);
   }
-  if (hasPathPrefix(np, hostWorkspace)) {
+  if (hostWorkspace && hasPathPrefix(np, hostWorkspace)) {
     return containerWorkspace + np.slice(hostWorkspace.length);
   }
 

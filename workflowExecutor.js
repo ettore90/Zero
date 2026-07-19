@@ -87,9 +87,15 @@ function buildWorkflowToolDispatchContext(deps, callerContext, timeoutMs, userna
 }
 
 
+function getExplicitHostWorkspaceRoot() {
+    const root = process.env.HOST_WORKSPACE_ROOT;
+    return typeof root === 'string' && root.trim() ? root.trim() : null;
+}
+
 function normalizeLegacyWorkflowPathString(value) {
     if (typeof value !== 'string') return value;
-    const hostWorkspaceRoot = process.env.HOST_WORKSPACE_ROOT || '/uby';
+    const hostWorkspaceRoot = getExplicitHostWorkspaceRoot();
+    if (!hostWorkspaceRoot) return value;
     if (value === '/app' || value.startsWith('/app/')) {
         return `${hostWorkspaceRoot}${value.slice('/app'.length)}` || hostWorkspaceRoot;
     }
@@ -98,7 +104,8 @@ function normalizeLegacyWorkflowPathString(value) {
 
 function normalizeLegacyWorkflowCommandString(value) {
     if (typeof value !== 'string') return value;
-    const hostWorkspaceRoot = process.env.HOST_WORKSPACE_ROOT || '/uby';
+    const hostWorkspaceRoot = getExplicitHostWorkspaceRoot();
+    if (!hostWorkspaceRoot) return value;
     return value.replace(/(^|[^\w/-])\/app(?=\/|\s|$)/g, (match, prefix) => `${prefix}${hostWorkspaceRoot}`);
 }
 
