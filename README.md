@@ -61,6 +61,22 @@ Guidance:
 
 Use only the variables that are actually supported by the application in this repository.
 
+
+## ✅ Validation
+
+Current official backend smoke commands:
+
+- `npm run validate:api`
+- `npm run validate`
+
+The current backend smoke covers:
+- local auth/session flow for user `ettore`
+- model availability via `GET /api/state/ettore`
+- SSE chat response for `gpt-5.4-LAB` and `gpt-5.4-mini-qa`
+- terminal tool smoke for `run_terminal_command` via `/api/chat`
+
+Use `validate:api` as the canonical backend smoke entrypoint for zero/green targets, overriding the base URL by environment when needed.
+
 ---
 
 ## 📚 Notes
