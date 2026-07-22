@@ -18,6 +18,8 @@
     "test:release:image-dist": "node scripts/release-image-dist.mjs",
     "test:release:logs": "node scripts/release-container-logs.mjs",
     "test:release:runtime": "node scripts/release-runtime-smoke.mjs",
+    "validate:api": "node scripts/validate/api-smoke.mjs",
+    "validate": "npm run validate:api",
     "test:release": "node scripts/release-gate.mjs"
   },
   "dependencies": {
