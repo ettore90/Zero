@@ -33,5 +33,5 @@ Cobertura atual do smoke backend oficial:
 - `npm run test:baseline`
 
 ## Observações
-- `npm run test:preflight` não existe no `package.json` atual.
+- `npm run test:preflight` não existe no `package.json` atual e não é o gate oficial atual.
 - O legado ainda não foi removido; o caminho canônico atual para smoke backend é `validate:api`.

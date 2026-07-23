@@ -64,18 +64,34 @@ Use only the variables that are actually supported by the application in this re
 
 ## ✅ Validation
 
-Current official backend smoke commands:
+Current official backend smoke coverage (`npm run validate:api` / `npm run validate`):
 
-- `npm run validate:api`
-- `npm run validate`
+- Auth/session for user `ettore`
+- Models via `GET /api/state/ettore`
+- SSE chat for `gpt-5.4-LAB` and `gpt-5.4-mini-qa`
+- Terminal tool `run_terminal_command` via `POST /api/chat`
 
-The current backend smoke covers:
-- local auth/session flow for user `ettore`
-- model availability via `GET /api/state/ettore`
-- SSE chat response for `gpt-5.4-LAB` and `gpt-5.4-mini-qa`
-- terminal tool smoke for `run_terminal_command` via `/api/chat`
+Current browser-based E2E smoke:
 
-Use `validate:api` as the canonical backend smoke entrypoint for zero/green targets, overriding the base URL by environment when needed.
+- `npm run test:e2e`
+
+These are the canonical current paths for smoke validation.
+
+Legacy / compatibility validation still available:
+
+- `npm run test:dist`
+- `npm run test:image-dist`
+- `npm run test:logs`
+- `npm run test:runtime`
+- `npm run test:baseline`
+
+Promotion gate (separate from smoke):
+
+- `npm run test:promotion`
+
+Notes:
+- Do not treat `test:promotion` as the official smoke entrypoint.
+- If `preflight` appears elsewhere in older docs, it should not be read as the current promotion gate.
 
 ---
 

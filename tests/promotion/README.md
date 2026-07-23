@@ -3,7 +3,7 @@
 O promotion gate é a validação mínima antes de promover mudanças do Green para o Codex.
 
 ## Gate atual
-- preflight aprovado
+- gate de promoção separado do smoke oficial
 - artefato real do container aprovado
 - logs do container aprovados
 - runtime smoke aprovado
@@ -14,6 +14,12 @@ Isso evita falso negativo quando o workspace está com artefato stale, mas o con
 
 ## Comando
 - `npm run test:promotion`
+
+## Relação com o smoke oficial
+- O smoke oficial atual é `npm run validate:api` / `npm run validate`.
+- O smoke E2E browser atual é `npm run test:e2e`.
+- `test:promotion` não é o smoke oficial; é um gate separado de promoção.
+- `test:dist`, `test:image-dist`, `test:logs`, `test:runtime` e `test:baseline` são caminhos legados/compatibilidade.
 
 ## Evolução esperada
 Adicionar nesta etapa:
