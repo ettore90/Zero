@@ -4,11 +4,7 @@ const envSource = globalThis as typeof globalThis & {
   process?: { env?: Record<string, string | undefined> };
 };
 const runtimeEnv = envSource.process?.env ?? {};
-const rawBaseURL = (
-  runtimeEnv.PLAYWRIGHT_BASE_URL
-  ?? runtimeEnv.VITE_APP_BASE_URL
-  ?? 'http://127.0.0.1:3010/zero/'
-).trim();
+const rawBaseURL = (runtimeEnv.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3010/zero/').trim();
 const normalizedBaseURL = rawBaseURL.endsWith('/') ? rawBaseURL : `${rawBaseURL}/`;
 
 export default defineConfig({

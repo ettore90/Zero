@@ -31,7 +31,7 @@ async function waitForAuthenticatedShell(page: Page): Promise<void> {
 }
 
 test('app opens and reaches authenticated shell for ettore', async ({ page }) => {
-  await page.goto('/zero/');
+  await page.goto('/');
   await expect(page.locator('#root')).toBeVisible();
   await expect(page.getByText('Application failed to start')).not.toBeVisible();
   await expect(page.getByText('Application failed to render')).not.toBeVisible();
