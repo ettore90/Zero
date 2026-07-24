@@ -1790,10 +1790,12 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
     }
 
     if (toolName === 'validate_prompt_architecture') {
+        const { error, document, scope } = resolvePromptDocumentTargetWithGlobal(args, username);
+        if (error) return { error };
         const target = {
-            documentId: args.documentId,
+            documentId: document?.id || args.documentId,
             blockId: args.blockId,
-            scope: args.global === true ? 'global' : args.scope,
+            scope,
             agentType: args.agentType,
         };
         return validatePromptArchitecture(target, { username: String(username) });
