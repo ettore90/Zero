@@ -19,6 +19,7 @@
     "test:release:logs": "node scripts/release-container-logs.mjs",
     "test:release:runtime": "node scripts/release-runtime-smoke.mjs",
     "validate:api": "node scripts/validate/api-smoke.mjs",
+    "validate:playwright-runner-smoke": "node scripts/validate/playwright-runner-smoke.mjs",
     "validate": "npm run validate:api",
     "test:release": "node scripts/release-gate.mjs",
     "test:e2e": "playwright test",
