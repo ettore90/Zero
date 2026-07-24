@@ -4,8 +4,8 @@ import { createReport } from './shared/report.mjs';
 
 const HEALTH_URL = 'http://playwright-runner:3021/health';
 const SESSION_URL = 'http://playwright-runner:3021/session';
-const ZERO_URL = 'http://zero:3010/zero/';
-const GREEN_URL = 'http://green:3011/green/';
+const ZERO_URL = 'https://nginx/zero/';
+const GREEN_URL = 'https://nginx/green/';
 
 function getSessionId(payload) {
   return payload?.sessionId || payload?.id || payload?.data?.sessionId || payload?.data?.id || '';
@@ -93,7 +93,7 @@ export async function runPlaywrightRunnerSmoke() {
     report.add(`healthStatus=${health.status}`);
     if (health.status !== 200) throw new Error(`Expected GET /health to return 200, received ${health.status}`);
 
-    const session = await httpJson(SESSION_URL, { method: 'POST', body: {} });
+    const session = await httpJson(SESSION_URL, { method: 'POST', body: { ignoreHTTPSErrors: true } });
     report.add(`sessionCreateStatus=${session.status}`);
     sessionId = getSessionId(session.json);
     report.add(`sessionId=${sessionId || 'missing'}`);
