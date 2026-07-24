@@ -1898,10 +1898,11 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         if (error) return { error };
         if (!document?.id) return { error: 'Prompt document not found.' };
         const blockIds = Array.isArray(args.blockIds) ? args.blockIds : [];
-        if (!blockIds.length) return { error: 'blockIds required' };
-        const result = deletePromptBlockAssignments(document.id, blockIds);
+        const orphanOnly = args.orphanOnly === true;
+        if (!orphanOnly && !blockIds.length) return { error: 'blockIds required unless orphanOnly=true' };
+        const result = deletePromptBlockTypeAssignments(document.id, { blockIds, orphanOnly });
         if (result?.error) return { error: result.error };
-        return { success: true, refs: (result.refs || []).map(serializePromptRef) };
+        return { success: true, deleted: result?.deleted || 0, documentId: result?.documentId || document.id, blockIds: Array.isArray(result?.blockIds) ? result.blockIds : [], orphanOnly: !!result?.orphanOnly };
     }
 
     if (toolName === 'inspect_prompt_block_assignment_drift') {
