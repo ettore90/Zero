@@ -296,12 +296,14 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
         <div className={isChatVisible ? (isCanvasVisible ? 'h-1/2 min-h-0' : 'flex-1 min-h-0') : 'h-12 overflow-hidden'}>
           {chatContent}
         </div>
-        <div className="relative h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#1e1e1e] border-t border-slate-200 dark:border-slate-800">
+        <div className={isCanvasVisible ? 'relative h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#1e1e1e] border-t border-slate-200 dark:border-slate-800' : 'h-0 overflow-hidden'}>
           {isCanvasVisible && (
             <div className="h-full min-h-0 min-w-0 w-full overflow-hidden">{workspaceContent}</div>
           )}
-          <div className="absolute inset-y-0 right-0 h-full w-14 shrink-0">
-            <CanvasRail railState={railState} railActions={railActions} />
+        </div>
+        <div className="pointer-events-none absolute bottom-3 right-3 z-20 md:hidden">
+          <div className="pointer-events-auto">
+            <CanvasRail railState={railState} railActions={railActions} compact />
           </div>
         </div>
       </div>
