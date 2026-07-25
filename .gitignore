@@ -1,4 +1,5 @@
 # Test artifacts
+test-results/
 test_*.mjs
 test_*.json
 SIMPLE_TEST.txt
