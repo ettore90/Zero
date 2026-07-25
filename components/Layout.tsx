@@ -298,7 +298,7 @@ const Layout: React.FC<LayoutProps> = ({
           </svg>
         </button>
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Nebula</div>
+          <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Zero</div>
           <div className="truncate text-xs font-semibold text-slate-100">{username}</div>
         </div>
         <div className="flex items-center gap-1">
@@ -307,6 +307,21 @@ const Layout: React.FC<LayoutProps> = ({
             className="rounded-lg px-2.5 py-2 text-[10px] font-black uppercase tracking-widest text-slate-200 hover:bg-slate-800/70"
           >
             Chat
+          </button>
+          <button
+            onClick={onToggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="flex items-center justify-center w-10 h-10 rounded-xl text-slate-300 hover:bg-slate-800/70 transition-all"
+          >
+            {theme === 'dark' ? (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+            )}
           </button>
           <button
             onClick={toggleSessionPanel}

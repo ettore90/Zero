@@ -590,20 +590,20 @@ const AgentManager: React.FC<AgentManagerProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-dark-900 rounded-2xl shadow-2xl w-[70vw] max-w-[1400px] min-w-[960px] border border-gray-100 dark:border-slate-800 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-[60] flex items-stretch justify-center bg-black/60 backdrop-blur-sm p-0 md:items-center md:p-4">
+      <div className="bg-white dark:bg-dark-900 rounded-none md:rounded-2xl shadow-2xl w-full h-full md:h-auto md:w-[70vw] md:max-w-[1400px] md:min-w-[960px] border-0 md:border border-gray-100 dark:border-slate-800 flex flex-col max-h-full md:max-h-[90vh]">
 
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
+        <div className="px-4 md:px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shrink-0">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full min-w-0">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-sm`} style={{ background: color }}>
               {name ? name.trim()[0]?.toUpperCase() ?? '?' : '?'}
             </div>
-            <div>
+            <div className="min-w-0 w-full">
               <h3 className="text-base font-bold text-gray-900 dark:text-white leading-tight">
                 {agent ? 'Edit Agent' : 'New Agent'}
               </h3>
-              <p className="text-xs text-gray-400 dark:text-gray-500">
+              <p className="text-xs text-gray-400 dark:text-gray-500 break-words">
                 {agent ? 'Edit agent settings; for existing agents, the canonical prompt is sourced from the composition blocks and refs.' : 'Configure your new agent'}
               </p>
             </div>
@@ -616,7 +616,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
         </div>
 
         {/* Tabs */}
-        <div className="px-6 pt-3 flex gap-1 border-b border-gray-100 dark:border-slate-800 shrink-0">
+        <div className="px-4 md:px-6 pt-3 flex gap-1 border-b border-gray-100 dark:border-slate-800 shrink-0 overflow-x-auto">
           {tabs.map(t => (
             <button
               key={t.id} type="button" onClick={() => setTab(t.id)}
@@ -633,12 +633,12 @@ const AgentManager: React.FC<AgentManagerProps> = ({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-          <div className="p-6">
+          <div className="p-4 md:p-6">
 
             {/* Tab: General */}
             {tab === 'general' && (
               <div className="space-y-5">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Name</label>
                     <input
@@ -658,7 +658,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Role</label>
                     <select value={role} onChange={e => setRole(e.target.value as Agent['role'])} className={inputCls}>
@@ -746,7 +746,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                         </div>
                       </div>
                       <div className="rounded-xl bg-white dark:bg-dark-900 border border-slate-200 dark:border-slate-700 p-3">
-                        <div className="flex items-center justify-between gap-3 mb-2">
+                        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 mb-2">
                           <div className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Block list</div>
                           <div className="text-[11px] text-slate-500 dark:text-slate-400">
                             Included: {resolvedIncludedPromptRefs.length}/{promptBlocks.length}
@@ -762,9 +762,9 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                               const inherited = isInheritedPromptBlock(block);
                               const originLabel = inherited ? 'Global' : 'Local';
                               return (
-                                <li key={getPromptBlockIdentity(block) || `${index}`} className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 py-2">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div>
+                                <li key={getPromptBlockIdentity(block) || `${index}`} className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 py-2 min-w-0">
+                                  <div className="flex flex-col md:flex-row items-start justify-between gap-3">
+                                    <div className="min-w-0 w-full md:w-auto">
                                       <div className="font-medium text-slate-900 dark:text-white">
                                         {block?.title ?? block?.blockKey ?? block?.id ?? `Block ${index + 1}`}
                                       </div>
@@ -785,11 +785,11 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                                   <div className="mt-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/40 px-2.5 py-2 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-words">
                                     {getPromptBlockPreview(block)}
                                   </div>
-                                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <div className="mt-3 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2">
                                     <button
                                       type="button"
                                       onClick={() => handleTogglePromptRef(block, !included)}
-                                      className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${included ? 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300' : 'bg-nebula-50 text-nebula-700 hover:bg-nebula-100 dark:bg-nebula-900/20 dark:text-nebula-300'}`}
+                                      className={`w-full sm:w-auto rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${included ? 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300' : 'bg-nebula-50 text-nebula-700 hover:bg-nebula-100 dark:bg-nebula-900/20 dark:text-nebula-300'}`}
                                     >
                                       {included ? (inherited ? 'Disable for this agent' : 'Remove from draft') : (inherited ? 'Re-enable for this agent' : 'Include in draft')}
                                     </button>
@@ -798,14 +798,14 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                                         <button
                                           type="button"
                                           onClick={() => handleStartEditLocalBlock(block)}
-                                          className="rounded-lg px-2.5 py-1.5 text-[11px] font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:text-indigo-300"
+                                          className="w-full sm:w-auto rounded-lg px-2.5 py-1.5 text-[11px] font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:text-indigo-300"
                                         >
                                           Edit local block
                                         </button>
                                         <button
                                           type="button"
                                           onClick={() => handleDeleteLocalPromptBlock(block)}
-                                          className="rounded-lg px-2.5 py-1.5 text-[11px] font-semibold bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300"
+                                          className="w-full sm:w-auto rounded-lg px-2.5 py-1.5 text-[11px] font-semibold bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300"
                                         >
                                           Delete local block
                                         </button>
@@ -826,7 +826,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                                             handleMovePromptRef(block, -1);
                                           }}
                                           disabled={currentOrder === 1}
-                                          className="rounded-lg px-2.5 py-1.5 text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+                                          className="w-full sm:w-auto rounded-lg px-2.5 py-1.5 text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
                                         >
                                           Move up
                                         </button>
@@ -843,7 +843,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                                             handleMovePromptRef(block, 1);
                                           }}
                                           disabled={currentOrder === resolvedIncludedPromptRefs.length}
-                                          className="rounded-lg px-2.5 py-1.5 text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+                                          className="w-full sm:w-auto rounded-lg px-2.5 py-1.5 text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
                                         >
                                           Move down
                                         </button>
@@ -957,8 +957,8 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                                     onClick={() => handleSelectPromptVersion(version.id)}
                                     className={`w-full text-left rounded-lg border px-3 py-2 text-xs transition-colors ${isSelected ? 'border-nebula-500 bg-nebula-50 dark:bg-nebula-900/20 dark:border-nebula-400' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-900 hover:bg-slate-50 dark:hover:bg-slate-800'} text-slate-600 dark:text-slate-300`}
                                   >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="font-medium text-slate-800 dark:text-slate-100">
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 min-w-0">
+                                      <div className="font-medium text-slate-800 dark:text-slate-100 min-w-0 break-words">
                                         Version {version.version ?? '—'}
                                         {isCurrent ? <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Current</span> : null}
                                       </div>
@@ -978,7 +978,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                           </ul>
                         </div>
                         <div className="bg-white dark:bg-dark-900 p-4">
-                          <div className="flex items-start justify-between gap-3 mb-3">
+                          <div className="flex flex-col md:flex-row items-start justify-between gap-3 mb-3">
                             <div>
                               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Version details</div>
                             </div>
@@ -999,10 +999,10 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                                 <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-3">
                                   <div className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Selected version</div>
                                   <div className="space-y-1">
-                                    <div>ID: {selectedPromptVersion.id ?? '—'}</div>
-                                    <div>Version: {selectedPromptVersion.version ?? '—'}</div>
-                                    <div>Created: {formatVersionDateTime(selectedPromptVersion.createdAt)}</div>
-                                    <div>Status: {promptCurrentVersion?.id === selectedPromptVersion.id ? 'Current published version' : 'Historical version'}</div>
+                                    <div className="min-w-0 w-full md:w-auto">ID: {selectedPromptVersion.id ?? '—'}</div>
+                                    <div className="min-w-0 w-full md:w-auto">Version: {selectedPromptVersion.version ?? '—'}</div>
+                                    <div className="min-w-0 w-full md:w-auto">Created: {formatVersionDateTime(selectedPromptVersion.createdAt)}</div>
+                                    <div className="min-w-0 w-full md:w-auto">Status: {promptCurrentVersion?.id === selectedPromptVersion.id ? 'Current published version' : 'Historical version'}</div>
                                   </div>
                                 </div>
                               </div>
@@ -1050,7 +1050,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
             {/* Tab: Limits */}
             {tab === 'limits' && (
               <div className="space-y-5">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Task Timeout (seconds)</label>
                     <div className="relative">
@@ -1106,7 +1106,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-gray-100 dark:border-slate-800 flex items-center gap-2 shrink-0 bg-gray-50 dark:bg-dark-950 rounded-b-2xl">
+          <div className="px-4 md:px-6 py-4 border-t border-gray-100 dark:border-slate-800 flex flex-col md:flex-row items-stretch md:items-center gap-2 shrink-0 bg-gray-50 dark:bg-dark-950 rounded-none md:rounded-b-2xl">
             {agent && onDelete && (
               <button
                 type="button"

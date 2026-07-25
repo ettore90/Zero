@@ -562,12 +562,13 @@ interface ChatPanelProps {
   syncStatus?: 'idle' | 'saving' | 'saved' | 'error';
   isChatVisible?: boolean;
   onToggleChat?: () => void;
+  mobileRail?: React.ReactNode;
 }
 
 const ChatPanel: React.FC<ChatPanelProps> = memo(({
   agent, isGenerating,
   onSendMessage, onClearSummary, onStop,
-  syncStatus = 'idle', isChatVisible = true, onToggleChat,
+  syncStatus = 'idle', isChatVisible = true, onToggleChat, mobileRail,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const history = Array.isArray(agent.history)
@@ -668,7 +669,7 @@ const ChatPanel: React.FC<ChatPanelProps> = memo(({
       )}
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-5 scroll-smooth custom-scrollbar relative">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 pb-6 md:pb-24 space-y-5 scroll-smooth custom-scrollbar relative min-h-0">
         {history.length === 0 && !agent.summary && (
           <div className="absolute inset-0 flex flex-col items-center justify-center opacity-30 select-none pointer-events-none">
             <div className="w-16 h-16 rounded-2xl mb-4 shadow-2xl animate-pulse" style={{ background: agent.color }} />
@@ -685,11 +686,18 @@ const ChatPanel: React.FC<ChatPanelProps> = memo(({
             isLast={i === history.length - 1}
           />
         ))}
-        <div className="h-4" />
       </div>
 
+
       {/* Input */}
-      <div className="p-4 bg-gradient-to-t from-white via-white to-transparent dark:from-dark-950 dark:via-dark-950 dark:to-transparent shrink-0 z-10">
+      <div className="relative p-4 bg-gradient-to-t from-white via-white to-transparent dark:from-dark-950 dark:via-dark-950 dark:to-transparent shrink-0 z-10">
+        {mobileRail && (
+          <div className="pointer-events-none absolute left-4 right-4 bottom-[calc(100%+0.75rem)] md:hidden z-20">
+            <div className="pointer-events-auto ml-auto w-fit">
+              {mobileRail}
+            </div>
+          </div>
+        )}
         <ChatInput onSend={onSendMessage} onStop={onStop} isGenerating={isGenerating} />
       </div>
     </div>
@@ -905,6 +913,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
     canvas.setActiveCanvasTab('editor');
   }, [username, canvas, sessionSnapshot.notes, selectSessionNoteLocally]);
+
 
   const shellActions = {
     onEditAgent: onEditAgent ?? (() => {}),

@@ -201,6 +201,11 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
     },
   };
 
+  const mobileRail = <CanvasRail railState={railState} railActions={railActions} compact />;
+  const chatContentWithMobileRail = React.isValidElement(chatContent)
+    ? React.cloneElement(chatContent as React.ReactElement<any>, { mobileRail })
+    : chatContent;
+
   const workspaceContent = !isCanvasVisible ? null : isWorkspaceSelectionOpen ? (
     <RightPanel
       isVisible={isCanvasVisible}
@@ -267,7 +272,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
             className={`flex flex-col overflow-hidden transition-[width,height] duration-300 ease-in-out ${isChatVisible ? 'h-full min-w-0' : 'h-12 w-0 min-w-0'}`}
           >
             <div className={isChatVisible ? (isCanvasVisible ? 'h-full min-h-0' : 'flex-1 min-h-0') : 'h-12 overflow-hidden'}>
-              {chatContent}
+              {chatContentWithMobileRail}
             </div>
           </div>
           {isCanvasVisible && (
@@ -293,17 +298,15 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       </div>
 
       <div className="flex md:hidden h-full w-full flex-col min-w-0">
-        <div className={isChatVisible ? (isCanvasVisible ? 'h-1/2 min-h-0' : 'flex-1 min-h-0') : 'h-12 overflow-hidden'}>
-          {chatContent}
-        </div>
-        <div className="relative h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#1e1e1e] border-t border-slate-200 dark:border-slate-800">
-          {isCanvasVisible && (
+        {isCanvasVisible ? (
+          <div className="relative flex-1 min-h-0 min-w-0 overflow-hidden bg-[#1e1e1e] border-t border-slate-200 dark:border-slate-800">
             <div className="h-full min-h-0 min-w-0 w-full overflow-hidden">{workspaceContent}</div>
-          )}
-          <div className="absolute inset-y-0 right-0 h-full w-14 shrink-0">
-            <CanvasRail railState={railState} railActions={railActions} />
           </div>
-        </div>
+        ) : (
+          <div className={isChatVisible ? 'relative flex-1 min-h-0' : 'h-12 overflow-hidden'}>
+            {chatContentWithMobileRail}
+          </div>
+        )}
       </div>
 
       <div className="hidden md:flex lg:hidden h-full w-full min-w-0">
