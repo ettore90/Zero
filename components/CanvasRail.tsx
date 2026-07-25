@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useEffect, useState } from 'react';
 import { CanvasTab } from '../hooks/useCanvasState';
 
 export const isSessionNoteTab = (tab: CanvasTab): boolean =>
@@ -39,6 +39,7 @@ interface RailButtonConfig {
 }
 
 const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact = false }) => {
+  const [isCompactExpanded, setIsCompactExpanded] = useState(false);
   const {
     tabs,
     activeTabId,
@@ -64,7 +65,7 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
   const isMonacoActive = !isStreamActive && (isProjectTreeSectionOpen || (hasActiveMonacoTab && !isSessionNotesSectionOpen));
 
   const railSizingClass = compact ? 'justify-center w-11 px-1.5' : 'justify-center w-full px-2';
-  const railButtonBase = `relative flex h-10 items-center ${railSizingClass} rounded-xl border border-transparent transition-all duration-150 focus:outline-none`;
+  const railButtonBase = `relative flex h-10 items-center ${railSizingClass} rounded-xl border border-transparent transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nebula-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950`;
   const railActiveStyle = {
     borderColor: 'var(--nebula-500)',
     color: 'var(--nebula-100)',
@@ -79,9 +80,20 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
     return `${railButtonBase} text-slate-500 dark:text-slate-600 hover:border-white/10 hover:bg-white/[0.045] hover:text-slate-100 hover:shadow-[0_8px_24px_rgba(0,0,0,0.18)]`;
   };
 
+  const handleCompactToggle = () => setIsCompactExpanded((prev) => !prev);
+
+  useEffect(() => {
+    if (!compact) setIsCompactExpanded(false);
+  }, [compact]);
+
+  const wrapCompactAction = (handler: () => void) => () => {
+    handler();
+    if (compact) setIsCompactExpanded(false);
+  };
+
   const renderRailButton = ({ key, title, ariaLabel, active, disabled, onClick, icon, badge }: RailButtonConfig) => (
-    <button key={key} onClick={onClick} disabled={disabled} className={getRailButtonClass(active, disabled)} style={active && !disabled ? railActiveStyle : undefined} title={title} aria-label={ariaLabel}>
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={active && !disabled ? railActiveIconStyle : railInactiveIconStyle}>
+    <button key={key} onClick={wrapCompactAction(onClick)} disabled={disabled} className={getRailButtonClass(active, disabled)} style={active && !disabled ? railActiveStyle : undefined} title={title} aria-label={ariaLabel}>
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={active && !disabled ? railActiveIconStyle : railInactiveIconStyle}>
         {icon}
       </svg>
       {badge && <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-orange-400 animate-pulse" />}
@@ -133,19 +145,57 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
     },
   ];
 
-  const compactClassName = 'flex h-auto w-auto flex-col gap-2 rounded-2xl border border-slate-800/80 bg-slate-950/95 p-2 shadow-2xl backdrop-blur';
+  const compactClassName = 'relative flex w-14 flex-col items-center';
+  const compactMenuClassName = `absolute bottom-[calc(100%+0.5rem)] left-1/2 flex h-auto -translate-x-1/2 flex-col gap-2 rounded-2xl border border-slate-800/80 bg-slate-950/95 p-2 shadow-2xl backdrop-blur transition-all duration-200 ease-out ${isCompactExpanded ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0'}`;
+  const compactToggleClassName = `relative flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nebula-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${isCompactExpanded
+    ? 'border-white/10 bg-white/[0.08] text-white shadow-[0_12px_32px_rgba(0,0,0,0.28)]'
+    : 'border-slate-800/80 bg-slate-950/95 text-slate-100 shadow-2xl backdrop-blur hover:border-white/10 hover:bg-white/[0.045]'} `;
   const desktopClassName = 'border-l border-slate-800 bg-slate-950/85 flex h-full min-h-0 shrink-0 flex-col py-3 w-14 items-center px-1.5 overflow-hidden';
 
-  return (
-    <div className={compact ? compactClassName : desktopClassName}>
-      <div className={compact ? 'flex flex-col gap-2' : 'flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-hidden'}>{upperRailButtons.map(renderRailButton)}</div>
-      <div className={compact ? 'flex flex-col gap-2 pt-1 border-t border-slate-800/70' : 'mt-auto flex w-full flex-col items-center gap-2 pt-4'}>
-        {lowerRailButtons.map(renderRailButton)}
-        {!compact && (
-          <div className="flex flex-col items-center gap-1 select-none text-[11px] font-black uppercase tracking-[0.22em] text-slate-600">
-            <span className="-rotate-90 origin-center transition-transform duration-200">WS</span>
+  if (compact) {
+    return (
+      <div className={compactClassName}>
+        <div className={compactMenuClassName} aria-hidden={!isCompactExpanded}>
+          <div className="flex flex-col gap-2">{upperRailButtons.map(renderRailButton)}</div>
+          <div className="flex flex-col gap-2 border-t border-slate-800/70 pt-1">
+            {lowerRailButtons.map(renderRailButton)}
           </div>
-        )}
+        </div>
+        <button
+          type="button"
+          onClick={handleCompactToggle}
+          className={compactToggleClassName}
+          aria-label={isCompactExpanded ? 'Close workspace menu' : 'Open workspace menu'}
+          aria-expanded={isCompactExpanded}
+          title={isCompactExpanded ? 'Close workspace menu' : 'Open workspace menu'}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={isCompactExpanded ? railActiveIconStyle : { color: 'var(--nebula-300)' }}>
+            {isCompactExpanded ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            ) : (
+              <>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 7.5h15" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12h15" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 16.5h15" />
+              </>
+            )}
+          </svg>
+          {pendingApproval && !isCompactExpanded && (
+            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-orange-400 animate-pulse" />
+          )}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={desktopClassName}>
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-hidden">{upperRailButtons.map(renderRailButton)}</div>
+      <div className="mt-auto flex w-full flex-col items-center gap-2 pt-4">
+        {lowerRailButtons.map(renderRailButton)}
+        <div className="flex flex-col items-center gap-1 select-none text-[11px] font-black uppercase tracking-[0.22em] text-slate-600">
+          <span className="-rotate-90 origin-center transition-transform duration-200">WS</span>
+        </div>
       </div>
     </div>
   );
