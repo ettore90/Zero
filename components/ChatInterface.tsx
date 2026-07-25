@@ -474,12 +474,12 @@ const ChatInput = memo(({
         </div>
       )}
 
-      <div className="flex items-end gap-2 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 rounded-2xl shadow-sm px-3 focus-within:border-nebula-400 dark:focus-within:border-nebula-500 transition-colors">
+      <div className="flex min-h-[60px] items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm transition-colors focus-within:border-nebula-400 dark:border-slate-700/60 dark:bg-slate-800/80 dark:focus-within:border-nebula-500">
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileChange} />
         <input ref={audioInputRef} type="file" accept="audio/*" capture className="hidden" onChange={handleAudioCaptureChange} />
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="p-2 text-slate-400 hover:text-nebula-500 transition-colors shrink-0"
+          className="flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full text-slate-400 transition-colors hover:text-nebula-500"
           title="Attach file"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -490,7 +490,7 @@ const ChatInput = memo(({
         <button
           onClick={handleToggleRecording}
           disabled={isGenerating || isProcessingFiles || isTranscribing}
-          className={`p-2 rounded-full transition-colors shrink-0 ${isRecording ? 'text-red-500 bg-red-50 dark:bg-red-500/10' : isTranscribing ? 'text-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'text-slate-400 hover:text-nebula-500'} ${(isGenerating || isProcessingFiles || isTranscribing) && !isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full transition-colors ${isRecording ? 'bg-red-50 text-red-500 dark:bg-red-500/10' : isTranscribing ? 'bg-amber-50 text-amber-500 dark:bg-amber-500/10' : 'text-slate-400 hover:text-nebula-500'} ${(isGenerating || isProcessingFiles || isTranscribing) && !isRecording ? 'cursor-not-allowed opacity-50' : ''}`}
           title={isRecording ? 'Stop recording' : isTranscribing ? 'Transcribing audio...' : 'Record audio'}
         >
           {isRecording ? (
@@ -519,18 +519,18 @@ const ChatInput = memo(({
           disabled={isGenerating || isTranscribing}
           spellCheck={false}
           autoComplete="off"
-          className="flex-1 bg-transparent border-none text-slate-800 dark:text-slate-100 px-2 py-3.5 focus:ring-0 outline-none resize-none placeholder-slate-400 dark:placeholder-slate-500 text-[15px] font-medium disabled:opacity-50"
+          className="min-h-[40px] flex-1 self-center bg-transparent px-2 py-2.5 text-[15px] font-medium text-slate-800 placeholder-slate-400 outline-none ring-0 resize-none disabled:opacity-50 dark:text-slate-100 dark:placeholder-slate-500"
         />
 
         {isGenerating ? (
-          <button onClick={onStop} className="p-3.5 rounded-full text-white bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/30 transition-all hover:scale-105 active:scale-95 group">
+          <button onClick={onStop} className="group flex h-10 w-10 shrink-0 self-center items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition-all hover:scale-105 hover:bg-red-600 active:scale-95">
             <div className="w-3 h-3 bg-white rounded-sm group-hover:scale-90 transition-transform" />
           </button>
         ) : (
           <button
             onClick={() => handleSubmit()}
             disabled={(!input.trim() && pendingFiles.length === 0) || isProcessingFiles || isTranscribing}
-            className={`p-3.5 rounded-full transition-all ${(!input.trim() && pendingFiles.length === 0) || isProcessingFiles || isTranscribing ? 'text-slate-200 dark:text-slate-800 opacity-40' : 'text-nebula-600 hover:bg-nebula-50 dark:hover:bg-nebula-500/10 active:scale-90 shadow-sm'}`}
+            className={`flex h-10 w-10 shrink-0 self-center items-center justify-center rounded-full transition-all ${(!input.trim() && pendingFiles.length === 0) || isProcessingFiles || isTranscribing ? 'opacity-40 text-slate-200 dark:text-slate-800' : 'text-nebula-600 shadow-sm hover:bg-nebula-50 active:scale-90 dark:hover:bg-nebula-500/10'}`}
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 rotate-90" viewBox="0 0 20 20" fill="currentColor">
               <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />

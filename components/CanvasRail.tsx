@@ -146,10 +146,10 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
   ];
 
   const compactClassName = 'relative flex w-14 flex-col items-center';
-  const compactMenuClassName = `absolute bottom-[calc(100%+0.5rem)] left-1/2 flex h-auto -translate-x-1/2 flex-col gap-2 rounded-2xl border border-slate-800/80 bg-slate-950/95 p-2 shadow-2xl backdrop-blur transition-all duration-200 ease-out ${isCompactExpanded ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0'}`;
-  const compactToggleClassName = `relative flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nebula-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${isCompactExpanded
-    ? 'border-white/10 bg-white/[0.08] text-white shadow-[0_12px_32px_rgba(0,0,0,0.28)]'
-    : 'border-slate-800/80 bg-slate-950/95 text-slate-100 shadow-2xl backdrop-blur hover:border-white/10 hover:bg-white/[0.045]'} `;
+  const compactMenuClassName = `absolute bottom-[calc(100%+0.5rem)] left-1/2 flex h-auto -translate-x-1/2 flex-col gap-2 rounded-2xl border border-slate-200/90 bg-white/95 p-2 shadow-2xl backdrop-blur transition-all duration-200 ease-out dark:border-slate-800/80 dark:bg-slate-950/95 ${isCompactExpanded ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0'}`;
+  const compactToggleClassName = `relative flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nebula-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950 ${isCompactExpanded
+    ? 'border-slate-300/90 bg-white text-slate-700 shadow-[0_12px_32px_rgba(15,23,42,0.18)] dark:border-white/10 dark:bg-white/[0.08] dark:text-white dark:shadow-[0_12px_32px_rgba(0,0,0,0.28)]'
+    : 'border-slate-200/90 bg-white text-slate-700 shadow-[0_12px_32px_rgba(15,23,42,0.14)] backdrop-blur hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800/80 dark:bg-slate-950/95 dark:text-slate-100 dark:shadow-2xl dark:hover:border-white/10 dark:hover:bg-white/[0.045]'} `;
   const desktopClassName = 'border-l border-slate-800 bg-slate-950/85 flex h-full min-h-0 shrink-0 flex-col py-3 w-14 items-center px-1.5 overflow-hidden';
 
   if (compact) {
@@ -169,7 +169,7 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
           aria-expanded={isCompactExpanded}
           title={isCompactExpanded ? 'Close workspace menu' : 'Open workspace menu'}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={isCompactExpanded ? railActiveIconStyle : { color: 'var(--nebula-300)' }}>
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={isCompactExpanded ? railActiveIconStyle : railInactiveIconStyle}>
             {isCompactExpanded ? (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             ) : (
