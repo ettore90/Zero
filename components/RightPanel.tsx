@@ -10,12 +10,20 @@ export interface RightPanelSessionNote {
   contentHtml?: string | null;
 }
 
+export interface RightPanelApprovalItem {
+  id: string;
+  title?: string | null;
+}
+
 export interface RightPanelProps {
   isVisible: boolean;
   isProjectTreeOpen: boolean;
   isSessionNotesOpen: boolean;
+  isApprovalsOpen?: boolean;
   sessionNotes?: RightPanelSessionNote[];
+  approvals?: RightPanelApprovalItem[];
   activeNoteId?: string | null;
+  activeApprovalId?: string | null;
   projects?: Project[];
   activeProjectId?: string | null;
   onSelectProject?: (id: string) => void;
@@ -30,6 +38,7 @@ export interface RightPanelProps {
   activeAgentId?: string;
   onCreateSessionNote: () => void;
   onOpenSessionNote?: (noteId: string, noteSessionId?: string | null) => void;
+  onOpenApproval?: (id: string) => void;
   onCollapseCanvas?: () => void;
   onProjectTreeFileOpened?: () => void;
 }
@@ -38,8 +47,11 @@ const RightPanel: React.FC<RightPanelProps> = ({
   isVisible,
   isProjectTreeOpen,
   isSessionNotesOpen,
+  isApprovalsOpen = false,
   sessionNotes = [],
+  approvals = [],
   activeNoteId = null,
+  activeApprovalId = null,
   projects = [],
   activeProjectId = null,
   onSelectProject,
@@ -54,11 +66,13 @@ const RightPanel: React.FC<RightPanelProps> = ({
   activeAgentId,
   onCreateSessionNote,
   onOpenSessionNote,
+  onOpenApproval,
   onCollapseCanvas,
   onProjectTreeFileOpened,
 }) => {
-  const panelOpen = isVisible && (isProjectTreeOpen || isSessionNotesOpen);
+  const panelOpen = isVisible && (isProjectTreeOpen || isSessionNotesOpen || isApprovalsOpen);
   const normalizedActiveNoteId = String(activeNoteId || '').trim();
+  const normalizedActiveApprovalId = String(activeApprovalId || '').trim();
 
   return (
     <section
@@ -71,7 +85,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
         <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col text-slate-200">
           <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 px-3 py-2">
             <div className="text-[11px] font-medium text-slate-500">
-              {isSessionNotesOpen ? 'Notes' : 'Project Tree'}
+              {isSessionNotesOpen ? 'Notes' : isApprovalsOpen ? 'Approvals' : 'Project Tree'}
             </div>
             {onCollapseCanvas && (
               <button
@@ -123,6 +137,41 @@ const RightPanel: React.FC<RightPanelProps> = ({
                         >
                           <div className="truncate text-xs font-medium">{note.title || 'Session note'}</div>
                           <div className="mt-1 truncate text-[10px] text-slate-500">{canonicalNoteId}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : isApprovalsOpen ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="border-b border-slate-800/80 px-3 py-2">
+                <div className="text-xs font-medium text-slate-300">Approvals</div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                {approvals.length === 0 ? (
+                  <div className="rounded border border-dashed border-slate-700 p-3 text-xs text-slate-400">
+                    No approvals yet.
+                  </div>
+                ) : (
+                  <div className="min-w-0 space-y-1">
+                    {approvals.map((approval) => {
+                      const approvalId = String(approval.id || '').trim();
+                      const isActive = approvalId !== '' && approvalId === normalizedActiveApprovalId;
+                      return (
+                        <button
+                          key={approvalId}
+                          type="button"
+                          onClick={() => approvalId && onOpenApproval?.(approvalId)}
+                          className={`w-full min-w-0 overflow-hidden rounded border px-3 py-2 text-left transition-colors ${
+                            isActive
+                              ? 'border-nebula-500 bg-nebula-500/10 text-white'
+                              : 'border-slate-800 bg-slate-900/40 text-slate-300 hover:bg-slate-800/70'
+                          }`}
+                        >
+                          <div className="truncate text-xs font-medium">{approval.title || 'Approval'}</div>
+                          <div className="mt-1 truncate text-[10px] text-slate-500">{approvalId}</div>
                         </button>
                       );
                     })}

@@ -746,6 +746,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const canvas = (useCanvasState as any)(agent.id);
   const [isCanvasProjectTreeSectionOpen, setIsCanvasProjectTreeSectionOpen] = useState(false);
   const [isCanvasSessionNotesSectionOpen, setIsCanvasSessionNotesSectionOpen] = useState(false);
+  const [isCanvasApprovalsSectionOpen, setIsCanvasApprovalsSectionOpen] = useState(false);
   const sessionNoteLoadKeyRef = useRef<string | null>(null);
 
   const sessionNoteSyncPort: SessionNoteSyncPort = useMemo(() => ({
@@ -774,6 +775,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     revealSessionNotesUi: () => {
       setIsCanvasSessionNotesSectionOpen(true);
       setIsCanvasProjectTreeSectionOpen(false);
+      setIsCanvasApprovalsSectionOpen(false);
     },
   }), []);
 
@@ -799,6 +801,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const clearCanvasRailSelection = useCallback(() => {
     setIsCanvasProjectTreeSectionOpen(false);
     setIsCanvasSessionNotesSectionOpen(false);
+    setIsCanvasApprovalsSectionOpen(false);
   }, []);
 
   const handleCreateScratchTab = useCallback(() => {
@@ -815,6 +818,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     canvas.setActiveCanvasTab('editor');
     setIsCanvasProjectTreeSectionOpen(true);
     setIsCanvasSessionNotesSectionOpen(false);
+    setIsCanvasApprovalsSectionOpen(false);
   }, [canvas]);
 
   const handleSaveAsTab = async (_tabId: string, content: string, currentPath: string) => {
@@ -848,6 +852,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     isCanvasVisible: canvas.isCanvasVisible,
     isCanvasProjectTreeSectionOpen,
     isCanvasSessionNotesSectionOpen,
+    isCanvasApprovalsSectionOpen,
   };
 
   const openSessionNoteFromRail = useCallback(async (noteId: string, noteSessionId?: string | null) => {
@@ -859,6 +864,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     canvas.setActiveCanvasTab('editor');
     setIsCanvasSessionNotesSectionOpen(false);
     setIsCanvasProjectTreeSectionOpen(false);
+    setIsCanvasApprovalsSectionOpen(false);
 
     const optimisticNote = explicitSessionId
       ? sessionSnapshot.notes.find((note) => String(note?.noteId || note?.id || '').trim() === canonicalNoteId) || null
@@ -916,6 +922,32 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }, [username, canvas, sessionSnapshot.notes, selectSessionNoteLocally]);
 
 
+  const approvalItems = React.useMemo(() => {
+    if (!pendingApproval || pendingApproval.agentId !== agent.id) return [];
+    const toolCalls = Array.isArray((pendingApproval as any).toolCalls) ? (pendingApproval as any).toolCalls : [];
+    const sensitiveCalls = Array.isArray((pendingApproval as any).sensitiveCalls) ? (pendingApproval as any).sensitiveCalls : [];
+    const toolSignature = toolCalls
+      .map((tc: any) => `${String(tc?.id || '')}:${String(tc?.function?.name || '')}:${String(tc?.function?.arguments || '')}`)
+      .join('|');
+    const approvalId = `pending:${agent.id}:${toolCalls.length}:${sensitiveCalls.length}:${toolSignature}`;
+    return [{
+      id: approvalId,
+      title: sensitiveCalls.length > 0 ? `Pending approval (${sensitiveCalls.length} sensitive)` : 'Pending approval',
+      toolCalls,
+      sensitiveCalls,
+      source: 'pendingApproval',
+    }];
+  }, [pendingApproval, agent.id]);
+  const [activeApprovalId, setActiveApprovalId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (approvalItems.length > 0) {
+      setActiveApprovalId((prev) => (prev && approvalItems.some((item) => item.id === prev) ? prev : approvalItems[0].id));
+      return;
+    }
+    setActiveApprovalId(null);
+  }, [approvalItems]);
+
   const shellActions = {
     onEditAgent: onEditAgent ?? (() => {}),
     onCreateSessionNote: handleCreateSessionNote,
@@ -933,8 +965,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     onDenyTool,
     onClearCanvasRailSelection: clearCanvasRailSelection,
     onOpenSessionNoteFromRail: openSessionNoteFromRail,
+    onOpenApprovalFromRail: (approvalId: string) => {
+      const canonicalApprovalId = String(approvalId || '').trim();
+      if (!canonicalApprovalId) return;
+      setActiveApprovalId(canonicalApprovalId);
+      setIsCanvasApprovalsSectionOpen(true);
+      setIsCanvasProjectTreeSectionOpen(false);
+      setIsCanvasSessionNotesSectionOpen(false);
+    },
     setIsCanvasProjectTreeSectionOpen,
     setIsCanvasSessionNotesSectionOpen,
+    setIsCanvasApprovalsSectionOpen,
     handleSaveTab,
     handleSaveAsTab,
   };
@@ -950,7 +991,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         isDarkTheme={isDarkTheme}
         shellActions={shellActions}
         sessionNotes={railSessionNotes}
+        approvals={approvalItems}
         activeNoteId={sessionSnapshot.activeNoteId ?? null}
+        activeApprovalId={activeApprovalId}
+        selectedApproval={approvalItems.find((item) => item.id === activeApprovalId) ?? null}
         projects={projects}
         activeProjectId={activeProjectId}
         onScanProject={onScanProject}

@@ -13,11 +13,15 @@ export interface ChatCanvasShellProps {
     isCanvasVisible: boolean;
     isCanvasProjectTreeSectionOpen: boolean;
     isCanvasSessionNotesSectionOpen: boolean;
+    isCanvasApprovalsSectionOpen: boolean;
   };
   canvas: any;
   isDarkTheme: boolean;
   sessionNotes?: Array<{ id: string; noteId?: string | null; sessionId?: string | null; title?: string | null; contentHtml?: string | null }>;
+  approvals?: Array<{ id: string; title?: string | null }>;
   activeNoteId?: string | null;
+  selectedApproval?: { id: string; title?: string | null; toolCalls?: any[]; sensitiveCalls?: any[]; source?: string } | null;
+  activeApprovalId?: string | null;
   projects?: Project[];
   activeProjectId?: string | null;
   onScanProject?: (id: string) => Promise<any>;
@@ -37,8 +41,10 @@ export interface ChatCanvasShellProps {
     onDenyTool: () => void;
     onClearCanvasRailSelection: () => void;
     onOpenSessionNoteFromRail?: (noteId: string, noteSessionId?: string | null) => void;
+    onOpenApprovalFromRail?: (approvalId: string) => void;
     setIsCanvasProjectTreeSectionOpen: React.Dispatch<React.SetStateAction<boolean>>;
     setIsCanvasSessionNotesSectionOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    setIsCanvasApprovalsSectionOpen: React.Dispatch<React.SetStateAction<boolean>>;
     handleSaveTab: (tabId: string, content: string, path: string) => void | Promise<void>;
     handleSaveAsTab: (tabId: string, content: string, currentPath: string) => void | Promise<void>;
   };
@@ -54,7 +60,10 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
   isDarkTheme,
   shellActions,
   sessionNotes = [],
+  approvals = [],
   activeNoteId = null,
+  selectedApproval = null,
+  activeApprovalId = null,
   projects = [],
   activeProjectId = null,
   onScanProject,
@@ -67,6 +76,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
     isCanvasVisible,
     isCanvasProjectTreeSectionOpen,
     isCanvasSessionNotesSectionOpen,
+    isCanvasApprovalsSectionOpen,
   } = shellState;
   const {
     onEditAgent,
@@ -78,18 +88,33 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
     onDeleteProject,
     onClearCanvasRailSelection,
     onOpenSessionNoteFromRail,
+    onOpenApprovalFromRail,
     setIsCanvasProjectTreeSectionOpen,
     setIsCanvasSessionNotesSectionOpen,
+    setIsCanvasApprovalsSectionOpen,
   } = shellActions;
 
   const hasSessionNoteTarget = !!agent.activeSessionId && agent.activeSessionId !== 'default';
-  const isWorkspaceSelectionOpen = isCanvasVisible && (isCanvasProjectTreeSectionOpen || isCanvasSessionNotesSectionOpen);
+  const isWorkspaceSelectionOpen = isCanvasVisible && (isCanvasProjectTreeSectionOpen || isCanvasSessionNotesSectionOpen || isCanvasApprovalsSectionOpen);
   const orderedSessionNotes = (Array.isArray(sessionNotes) ? sessionNotes : [])
     .map((note) => {
       const canonicalNoteId = String(note?.noteId ?? note?.id ?? '').trim();
       return canonicalNoteId ? { ...note, id: canonicalNoteId, noteId: canonicalNoteId } : null;
     })
     .filter(Boolean) as Array<{ id: string; noteId?: string | null; sessionId?: string | null; title?: string | null; contentHtml?: string | null }>;
+
+  const normalizedApprovals = Array.isArray(approvals) ? approvals : [];
+  const normalizedSelectedApproval = selectedApproval && normalizedApprovals.some((approval) => approval?.id === selectedApproval.id)
+    ? selectedApproval
+    : null;
+
+  const handleOpenApprovalFromRail = (approvalId: string) => {
+    const canonicalApprovalId = String(approvalId || '').trim();
+    if (!canonicalApprovalId) return;
+    if (typeof onOpenApprovalFromRail === 'function') {
+      onOpenApprovalFromRail(canonicalApprovalId);
+    }
+  };
 
   const handleOpenSessionNoteFromRail = (noteId: string, noteSessionId?: string | null) => {
     const canonicalNoteId = String(noteId || '').trim();
@@ -170,6 +195,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
     pendingApproval: !!pendingApproval && pendingApproval.agentId === agent.id,
     isProjectTreeSectionOpen: isCanvasProjectTreeSectionOpen,
     isSessionNotesSectionOpen: isCanvasSessionNotesSectionOpen,
+    isApprovalsSectionOpen: isCanvasApprovalsSectionOpen,
   };
 
   const railActions = {
@@ -179,6 +205,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       setIsCanvasSessionNotesSectionOpen((prev: boolean) => {
         const next = !prev;
         setIsCanvasProjectTreeSectionOpen(false);
+        setIsCanvasApprovalsSectionOpen(false);
         return next;
       });
     },
@@ -187,6 +214,17 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       canvas.setActiveCanvasTab('editor');
       setIsCanvasProjectTreeSectionOpen((prev: boolean) => {
         const next = !prev;
+        setIsCanvasSessionNotesSectionOpen(false);
+        setIsCanvasApprovalsSectionOpen(false);
+        return next;
+      });
+    },
+    onToggleApprovalsSection: () => {
+      if (!canvas.isCanvasVisible) canvas.toggleCanvas();
+      canvas.setActiveCanvasTab('editor');
+      setIsCanvasApprovalsSectionOpen((prev: boolean) => {
+        const next = !prev;
+        setIsCanvasProjectTreeSectionOpen(false);
         setIsCanvasSessionNotesSectionOpen(false);
         return next;
       });
@@ -197,6 +235,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       onClearCanvasRailSelection();
       setIsCanvasProjectTreeSectionOpen(false);
       setIsCanvasSessionNotesSectionOpen(false);
+      setIsCanvasApprovalsSectionOpen(false);
       canvas.setActiveCanvasTab('commands');
     },
   };
@@ -211,8 +250,11 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       isVisible={isCanvasVisible}
       isProjectTreeOpen={isCanvasProjectTreeSectionOpen}
       isSessionNotesOpen={isCanvasSessionNotesSectionOpen}
+      isApprovalsOpen={isCanvasApprovalsSectionOpen}
       sessionNotes={orderedSessionNotes}
+      approvals={normalizedApprovals}
       activeNoteId={activeNoteId}
+      activeApprovalId={activeApprovalId}
       projects={projects}
       activeProjectId={activeProjectId}
       onSelectProject={onSelectProject}
@@ -227,10 +269,12 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       activeAgentId={agent.id}
       onCreateSessionNote={onCreateSessionNote}
       onOpenSessionNote={handleOpenSessionNoteFromRail}
+      onOpenApproval={handleOpenApprovalFromRail}
       onCollapseCanvas={canvas.toggleCanvas}
       onProjectTreeFileOpened={() => {
         setIsCanvasProjectTreeSectionOpen(false);
         setIsCanvasSessionNotesSectionOpen(false);
+        setIsCanvasApprovalsSectionOpen(false);
         if (!canvas.isCanvasVisible) canvas.toggleCanvas();
         canvas.setActiveCanvasTab('editor');
       }}
@@ -260,6 +304,8 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       pendingApproval={pendingApproval as any}
       onApproveTool={shellActions.onApproveTool}
       onDenyTool={shellActions.onDenyTool}
+      selectedApproval={normalizedSelectedApproval}
+      isApprovalsSectionOpen={isCanvasApprovalsSectionOpen}
     />
   );
 

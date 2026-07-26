@@ -10,6 +10,7 @@ export interface CanvasRailState {
   activeCanvasTab: 'editor' | 'commands';
   isProjectTreeSectionOpen: boolean;
   isSessionNotesSectionOpen: boolean;
+  isApprovalsSectionOpen: boolean;
   hasSessionNoteTarget: boolean;
   pendingApproval: boolean;
 }
@@ -17,6 +18,7 @@ export interface CanvasRailState {
 export interface CanvasRailActions {
   onToggleSessionNotesSection: () => void;
   onToggleProjectTreeSection: () => void;
+  onToggleApprovalsSection: () => void;
   onEditAgent: () => void;
   onSwitchToCommands: () => void;
 }
@@ -46,12 +48,14 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
     activeCanvasTab,
     isProjectTreeSectionOpen,
     isSessionNotesSectionOpen,
+    isApprovalsSectionOpen,
     hasSessionNoteTarget,
     pendingApproval,
   } = railState;
   const {
     onToggleSessionNotesSection,
     onToggleProjectTreeSection,
+    onToggleApprovalsSection,
     onEditAgent,
     onSwitchToCommands,
   } = railActions;
@@ -131,6 +135,15 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
       onClick: onSwitchToCommands,
       badge: pendingApproval,
       icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.25 6.75L21 12l-3.75 5.25M2.25 6.75L6 12l-3.75 5.25M8.25 19.5l7.5-15" />,
+    },
+    {
+      key: 'approvals',
+      title: 'Approvals',
+      ariaLabel: 'Approvals',
+      active: isApprovalsSectionOpen,
+      badge: pendingApproval,
+      onClick: onToggleApprovalsSection,
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75M7.5 4.5h9A2.25 2.25 0 0118.75 6.75v10.5A2.25 2.25 0 0116.5 19.5h-9a2.25 2.25 0 01-2.25-2.25V6.75A2.25 2.25 0 017.5 4.5z" />,
     },
   ];
 

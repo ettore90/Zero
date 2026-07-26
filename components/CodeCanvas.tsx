@@ -267,6 +267,8 @@ export interface CodeCanvasProps {
   agentId: string;
   hasSessionNoteTarget: boolean;
   pendingApproval: { agentId: string; toolCalls: ToolCall[]; sensitiveCalls: ToolCall[] } | null;
+  selectedApproval?: { id: string; title?: string | null; toolCalls?: ToolCall[]; sensitiveCalls?: ToolCall[]; source?: string } | null;
+  isApprovalsSectionOpen?: boolean;
   onApproveTool: () => void;
   onDenyTool: () => void;
 }
@@ -292,13 +294,15 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
   activeTab, activeCanvasTab, isDarkTheme,
   onUpdateContent, onSaveTab, onSaveAsTab,
   onAcceptDiff, onRejectDiff,
-  agentHistory, agentId, pendingApproval, onApproveTool, onDenyTool,
+  agentHistory, agentId, pendingApproval, selectedApproval = null, isApprovalsSectionOpen = false, onApproveTool, onDenyTool,
 }) => {
   const monacoTheme = isDarkTheme ? 'vs-dark' : 'vs';
 
   const headerTitle = activeCanvasTab === 'commands'
     ? 'Command Stream'
-    : activeTab
+    : selectedApproval
+      ? `Approval > ${selectedApproval.title || selectedApproval.id}`
+      : activeTab
       ? (isSessionNoteTab(activeTab)
         ? 'Session Note'
         : `Scratch Pad${activeTab.filename ? ` > ${activeTab.filename}` : ''}`)
@@ -321,6 +325,80 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
     wordWrap: 'off' as const,
   };
 
+  const renderApprovalSurface = () => {
+    const hasToolCallsArray = Array.isArray(selectedApproval?.toolCalls);
+    const hasSensitiveCallsArray = Array.isArray(selectedApproval?.sensitiveCalls);
+    if (!hasToolCallsArray && !hasSensitiveCallsArray) {
+      return renderApprovalPayloadEmptyState();
+    }
+    const safeToolCalls = hasToolCallsArray ? selectedApproval!.toolCalls! : [];
+    const safeSensitiveCalls = hasSensitiveCallsArray ? selectedApproval!.sensitiveCalls! : [];
+    return (
+      <CanvasViewport className="bg-[#1e1e1e]">
+        <div className="flex h-full min-h-0 min-w-0 flex-col overflow-auto p-5 text-slate-200">
+          <div className="mb-4 rounded-xl border border-orange-500/30 bg-orange-950/20 p-4">
+            <div className="text-[10px] font-black uppercase tracking-[0.24em] text-orange-300">Approval Details</div>
+            <div className="mt-2 text-lg font-semibold text-white">{selectedApproval?.title || 'Approval'}</div>
+            <div className="mt-1 text-xs text-slate-400">ID: {selectedApproval?.id || 'n/a'}</div>
+            <div className="mt-2 text-sm text-slate-300">Read-only preview of the selected approval context.</div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+              <div className="mb-3 text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Sensitive Calls</div>
+              <div className="space-y-2">
+                {safeSensitiveCalls.length === 0 ? (
+                  <div className="text-xs text-slate-500">No sensitive calls detected.</div>
+                ) : safeSensitiveCalls.map((tc, index) => (
+                  <div key={`${tc?.id || tc?.function?.name || 'sensitive'}-${index}`} className="rounded-lg border border-orange-500/20 bg-orange-950/10 px-3 py-2">
+                    <div className="text-xs font-semibold text-orange-300">{tc?.function?.name || 'Unknown tool'}</div>
+                    <div className="mt-1 text-[11px] text-slate-400 break-all">{tc?.function?.arguments || '{}'}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+              <div className="mb-3 text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">All Tool Calls</div>
+              <div className="space-y-2">
+                {safeToolCalls.length === 0 ? (
+                  <div className="text-xs text-slate-500">No tool calls available.</div>
+                ) : safeToolCalls.map((tc, index) => (
+                  <div key={`${tc?.id || tc?.function?.name || 'tool'}-${index}`} className="rounded-lg border border-slate-700 bg-black/20 px-3 py-2">
+                    <div className="text-xs font-semibold text-nebula-200">{tc?.function?.name || 'Unknown tool'}</div>
+                    <div className="mt-1 text-[11px] text-slate-400 break-all">{tc?.function?.arguments || '{}'}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </CanvasViewport>
+    );
+  };
+
+  const renderApprovalPayloadEmptyState = () => (
+    <CanvasViewport className="bg-[#1e1e1e]">
+      <div className="flex h-full min-h-0 min-w-0 items-center justify-center text-slate-500">
+        <div className="flex flex-col items-center gap-2 text-center px-6">
+          <div className="text-sm font-medium text-slate-300">Approval data unavailable</div>
+          <div className="text-[12px] text-slate-500">The selected approval does not contain readable tool call details.</div>
+        </div>
+      </div>
+    </CanvasViewport>
+  );
+
+  const renderApprovalsEmptyState = () => (
+    <CanvasViewport className="bg-[#1e1e1e]">
+      <div className="flex h-full min-h-0 min-w-0 items-center justify-center text-slate-500">
+        <div className="flex flex-col items-center gap-2 text-center px-6">
+          <div className="text-sm font-medium text-slate-300">No approval selected</div>
+          <div className="text-[12px] text-slate-500">Choose an approval from the right panel to inspect it here.</div>
+        </div>
+      </div>
+    </CanvasViewport>
+  );
+
   const renderEmptyState = () => (
     <CanvasViewport className="bg-[#1e1e1e]">
       <div className="flex h-full min-h-0 min-w-0 items-center justify-center text-slate-500">
@@ -333,6 +411,14 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
   );
 
   const renderEditor = () => {
+    if (selectedApproval) {
+      return renderApprovalSurface();
+    }
+
+    if (isApprovalsSectionOpen) {
+      return renderApprovalsEmptyState();
+    }
+
     if (!activeTab) {
       return renderEmptyState();
     }
