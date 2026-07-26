@@ -162,6 +162,26 @@ export const SYSTEM_TOOLS = [
     type: 'function',
     group: 'Prompt Blocks',
     function: {
+      name: 'request_plan_approval',
+      callableBy: ['workflow', 'llm', 'agent'],
+      description: 'Request approval of the plan before execution.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Plan title' },
+          objective: { type: 'string', description: 'What the plan aims to achieve' },
+          approach: { type: 'string', description: 'How the plan will be executed' },
+          risks: { type: 'string', description: 'Optional risks or concerns' },
+          checklist: { type: 'array', items: { type: 'string' }, description: 'Optional checklist items' },
+        },
+        required: ['title', 'objective', 'approach'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    group: 'Prompt Blocks',
+    function: {
       name: 'list_prompt_refs',
       callableBy: ['workflow', 'llm', 'agent'],
       description: 'List local prompt refs for a canonical prompt document resolved by visible agent, explicit document reference, or global scope.',
