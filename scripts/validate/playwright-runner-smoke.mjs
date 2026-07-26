@@ -100,8 +100,8 @@ export async function runPlaywrightRunnerSmoke() {
     if (session.status !== 200 && session.status !== 201) throw new Error(`Expected POST /session to return 200/201, received ${session.status}`);
     if (!sessionId) throw new Error('POST /session did not return a session id');
 
-    await runPageChecks(sessionId, 'zero', ZERO_URL, 'Zero', report);
     await runPageChecks(sessionId, 'green', GREEN_URL, 'Green', report);
+    await runPageChecks(sessionId, 'zero', ZERO_URL, 'Zero', report);
 
     report.add('checks=passed');
   } finally {

@@ -1,6 +1,6 @@
 # Shared Release Gate
 
-O projeto agora possui uma camada compartilhada de release gate em `scripts/release-*.mjs`.
+O projeto possui uma camada compartilhada de release gate em `scripts/release-*.mjs`.
 
 ## Scripts compartilhados
 - `scripts/release-image-dist.mjs`
@@ -9,19 +9,16 @@ O projeto agora possui uma camada compartilhada de release gate em `scripts/rele
 - `scripts/release-gate.mjs`
 - `scripts/shared/release-test-lib.mjs`
 
-## Uso no Green
-Os wrappers existentes do Green continuam funcionando:
-- `test-green-image-dist.mjs`
-- `test-green-container-logs.mjs`
-- `test-green-runtime-smoke.mjs`
+## Uso no main
+A camada compartilhada continua sendo usada pelo fluxo do `main`.
 
-Eles apenas carregam os scripts compartilhados com defaults do Green.
-
-## Uso no Codex
-No Codex, basta copiar essa mesma estrutura e executar os scripts compartilhados com variáveis de ambiente do release.
+## Esclarecimento de escopo
+- a branch Git `green` deixa de existir;
+- o runtime/ambiente Green continua existindo;
+- o alinhamento é da branch Git para `main`;
+- não há wrappers `test-main-*` neste repositório.
 
 ## Benefício
 - evita duplicação
-- reduz drift entre Green e Codex
-- mantém o Green como staging gate
-- mantém o Codex como release gate simplificado
+- reduz drift entre o fluxo do `main` e a camada compartilhada
+- mantém o runtime Green sem alterar o contrato de release gate
