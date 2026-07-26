@@ -21,18 +21,24 @@ const GROUP_ORDER = ['File System', 'Execution', 'Git', 'Notes', 'Memory', 'Orch
 function buildToolGroups(): ToolGroup[] {
   // Group by the 'group' field defined in toolDefinitions.js — fully automatic
   const map = new Map<string, { name: string; description: string }[]>();
+  const tools = Array.isArray(SYSTEM_TOOLS) ? SYSTEM_TOOLS : [];
 
-  for (const t of SYSTEM_TOOLS) {
-    const group = t.group || 'Other';
+  for (const t of tools) {
+    const toolName = t?.function?.name;
+    const toolDescription = t?.function?.description;
+    if (!toolName || typeof toolDescription !== 'string') continue;
+
+    const group = t?.group || 'Other';
     if (!map.has(group)) map.set(group, []);
-    map.get(group)!.push({ name: t.function.name, description: t.function.description.slice(0, 60) });
+    map.get(group)?.push({ name: toolName, description: toolDescription.slice(0, 60) });
   }
 
   const orderedGroups = GROUP_ORDER.filter(g => map.has(g));
   const remainingGroups = [...map.keys()].filter(g => !GROUP_ORDER.includes(g));
 
   return [...orderedGroups, ...remainingGroups]
-    .map(g => ({ label: g, icon: GROUP_ICONS[g] || '🔧', tools: map.get(g)! }));
+    .map(g => ({ label: g, icon: GROUP_ICONS[g] || '🔧', tools: map.get(g) ?? [] }))
+    .filter(group => Array.isArray(group.tools));
 }
 
 const TOOL_GROUPS = buildToolGroups();
