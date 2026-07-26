@@ -160,7 +160,7 @@ export const SYSTEM_TOOLS = [
   },
   {
     type: 'function',
-    group: 'Prompt Blocks',
+    group: 'Orchestration',
     function: {
       name: 'request_plan_approval',
       callableBy: ['workflow', 'llm', 'agent'],
