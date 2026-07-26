@@ -17,16 +17,22 @@ interface ToolParameterProperty {
 
 // Helper to safely get properties from parameters object
 const getParameterProperties = (params: ExternalTool['parameters']): Record<string, ToolParameterProperty> => {
-  return (params as any).properties || {};
+  if (!params || typeof params !== 'object') return {};
+  const properties = (params as any).properties;
+  return properties && typeof properties === 'object' ? properties : {};
 };
 
 const getRequired = (params: ExternalTool['parameters']): string[] => {
-  return (params as any).required || [];
+  if (!params || typeof params !== 'object') return [];
+  const required = (params as any).required;
+  return Array.isArray(required) ? required : [];
 };
 
 const CommandLibrary: React.FC<CommandLibraryProps> = ({
   externalTools = [],
 }) => {
+  const safeSystemTools = Array.isArray(SYSTEM_TOOLS) ? SYSTEM_TOOLS : [];
+  const safeExternalTools = Array.isArray(externalTools) ? externalTools : [];
   const getHostname = (urlStr: string) => {
     try {
       return new URL(urlStr).hostname;
@@ -51,7 +57,7 @@ const CommandLibrary: React.FC<CommandLibraryProps> = ({
           <section className="space-y-6">
             <h2 className="text-xs font-black uppercase text-slate-400 tracking-[0.3em] border-b dark:border-slate-800 pb-2">Core System Commands</h2>
             <div className="grid gap-6">
-              {SYSTEM_TOOLS.map((tool, idx) => (
+              {safeSystemTools.map((tool, idx) => (
                 <div key={`sys-${idx}`} className="bg-slate-50 dark:bg-dark-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden hover:border-nebula-500/50 transition-colors">
                   <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -72,12 +78,12 @@ const CommandLibrary: React.FC<CommandLibraryProps> = ({
                     <div className="bg-white dark:bg-black/20 rounded-xl border border-slate-200 dark:border-slate-800 p-4">
                       <div className="text-[10px] font-black uppercase text-slate-500 mb-3 tracking-wider">Parameters Schema</div>
                       <div className="space-y-3">
-                        {tool.function.parameters.properties && Object.entries(tool.function.parameters.properties).map(([key, value]) => {
+                        {Object.entries(getParameterProperties((tool as any)?.function?.parameters)).map(([key, value]) => {
                           const typedValue = value as ToolParameterProperty;
                           return (
                             <div key={key} className="flex flex-col md:flex-row md:items-start gap-1 md:gap-4 text-xs">
                               <span className="font-mono font-bold text-slate-700 dark:text-slate-200 min-w-[120px] shrink-0">
-                                {key} {getRequired(tool.function.parameters as any).includes(key) && <span className="text-red-500">*</span>}
+                                {key} {getRequired((tool as any)?.function?.parameters).includes(key) && <span className="text-red-500">*</span>}
                               </span>
                               <div className="flex-1">
                                 <span className="text-slate-400 font-mono text-[10px] uppercase bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded mr-2">
@@ -99,11 +105,11 @@ const CommandLibrary: React.FC<CommandLibraryProps> = ({
           </section>
 
           {/* External Dynamic Tools Section */}
-          {externalTools.length > 0 && (
+          {safeExternalTools.length > 0 && (
             <section className="space-y-6">
               <h2 className="text-xs font-black uppercase text-nebula-500 tracking-[0.3em] border-b dark:border-nebula-900/30 pb-2">External Dynamic Commands</h2>
               <div className="grid gap-6">
-                {externalTools.map((tool) => (
+                {safeExternalTools.map((tool) => (
                   <div key={tool.name} className="bg-nebula-50/20 dark:bg-nebula-950/10 border border-nebula-200 dark:border-nebula-900/30 rounded-2xl overflow-hidden hover:border-nebula-500/50 transition-colors">
                     <div className="p-4 bg-nebula-100/40 dark:bg-nebula-900/20 border-b border-nebula-200 dark:border-nebula-900/30 flex items-center justify-between">
                       <div className="flex items-center gap-3">

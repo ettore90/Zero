@@ -441,34 +441,6 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
         opts.agentsRef.current = finalAgents;
 
         if ((result as any).tool_calls && (result as any).tool_calls.length > 0) {
-          const planCall = !silent && (result as any).tool_calls.find((tc: ToolCall) => tc.function.name === 'request_plan_approval');
-          if (planCall) {
-            let planArgs: any = {};
-            try { planArgs = typeof planCall.function.arguments === 'string' ? JSON.parse(planCall.function.arguments) : planCall.function.arguments; } catch {}
-            opts.setAgentGenerating(agentId, false, null);
-            opts.isGeneratingRef.current = false;
-            await new Promise<void>((resolve, reject) => {
-              opts.setPendingStrategyPlan({
-                agentId: targetAgentId,
-                plan: planArgs,
-                signal,
-                onApprove: () => { opts.setPendingStrategyPlan(null); resolve(); },
-                onReject: () => { opts.setPendingStrategyPlan(null); reject(new Error('Plan rejected by user')); },
-              });
-            }).catch(() => { return; });
-            if (signal?.aborted) return (result as any).content;
-            const resumedSessionId = opts.agentsRef.current.find(a => a.id === agentId)?.activeSessionId ?? null;
-            opts.setAgentGenerating(agentId, true, null, resumedSessionId);
-            opts.isGeneratingRef.current = true;
-            const remainingCalls = (result as any).tool_calls.filter((tc: ToolCall) => tc.function.name !== 'request_plan_approval');
-            if (remainingCalls.length > 0) await opts.processToolCalls(targetAgentId, remainingCalls, signal);
-            if (!signal?.aborted) {
-              if (!silent) await opts.persistAndSync();
-              return await runAgentCycle(targetAgentId, null, undefined, undefined, signal, silent);
-            }
-            return (result as any).content;
-          }
-
           const sensitiveCalls = (result as any).tool_calls.filter((tc: ToolCall) => requiresApproval(tc.function.name, JSON.parse(tc.function.arguments || '{}')));
           if (sensitiveCalls.length > 0 && !silent) {
             opts.setPendingApproval({ agentId: targetAgentId, toolCalls: (result as any).tool_calls, sensitiveCalls } as any);

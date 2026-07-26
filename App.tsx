@@ -481,18 +481,26 @@ const App: React.FC = () => {
             });
         }, []),
         onApprovalRequired: useCallback((data: any) => {
-            sseHandlersRef.current.setPendingPlan({
+            setPendingStrategyPlan({
                 agentId: data.agentId,
                 requestId: data.requestId,
-                title: data.title,
-                objective: data.objective,
-                approach: data.approach,
-                risks: data.risks,
-                checklist: data.checklist?.map((c: string) => ({ text: c, done: false })),
-                onApprove: () => respondToApprovalRef.current?.(data.requestId, true),
-                onReject: () => respondToApprovalRef.current?.(data.requestId, false),
+                plan: {
+                    title: data.title ?? '',
+                    objective: data.objective ?? '',
+                    approach: data.approach ?? '',
+                    risks: data.risks ?? '',
+                    checklist: Array.isArray(data.checklist) ? data.checklist : [],
+                },
+                onApprove: () => {
+                    respondToApprovalRef.current?.(data.requestId, true);
+                    setPendingStrategyPlan(null);
+                },
+                onReject: () => {
+                    respondToApprovalRef.current?.(data.requestId, false);
+                    setPendingStrategyPlan(null);
+                },
             } as any);
-        }, []),
+        }, [setPendingStrategyPlan]),
     });
     // Injetar respondToApproval no ref após o hook ser criado
     useEffect(() => { respondToApprovalRef.current = _respondToApproval; }, [_respondToApproval]);

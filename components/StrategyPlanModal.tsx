@@ -8,11 +8,11 @@ import React, { useState } from 'react';
 // ---------------------------------------------------------------------------
 
 interface StrategyPlan {
-  title: string;
-  objective: string;
-  approach: string;
+  title?: string;
+  objective?: string;
+  approach?: string;
   risks?: string;
-  checklist: string[];
+  checklist?: string[] | { text?: string; done?: boolean }[];
 }
 
 interface StrategyPlanModalProps {
@@ -28,9 +28,12 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
   onApprove,
   onReject,
 }) => {
-  const [checklist, setChecklist] = useState<string[]>(plan.checklist ?? []);
+  const normalizedChecklist = Array.isArray(plan?.checklist)
+    ? plan.checklist.map(item => typeof item === 'string' ? item : (item?.text ?? '')).filter(Boolean)
+    : [];
+  const [checklist, setChecklist] = useState<string[]>(normalizedChecklist);
   const [newItem, setNewItem] = useState('');
-  const [checked, setChecked] = useState<boolean[]>((plan.checklist ?? []).map(() => false));
+  const [checked, setChecked] = useState<boolean[]>(normalizedChecklist.map(() => false));
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
 
@@ -76,7 +79,7 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
           <div className="w-9 h-9 rounded-xl bg-indigo-500/20 flex items-center justify-center text-xl shrink-0">🧠</div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-white truncate">{plan.title}</h2>
+              <h2 className="text-sm font-bold text-white truncate">{plan.title ?? 'Execution Plan'}</h2>
               {hasRisks && (
                 <span className="text-[9px] font-bold uppercase tracking-widest text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded shrink-0">
                   ⚠ risks
@@ -93,13 +96,13 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
           {/* Objective */}
           <section>
             <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 block mb-1">Objective</span>
-            <p className="text-[12px] text-slate-200 leading-relaxed">{plan.objective}</p>
+            <p className="text-[12px] text-slate-200 leading-relaxed">{plan.objective ?? ''}</p>
           </section>
 
           {/* Approach */}
           <section>
             <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 block mb-1">Approach</span>
-            <p className="text-[12px] text-slate-300 leading-relaxed whitespace-pre-wrap">{plan.approach}</p>
+            <p className="text-[12px] text-slate-300 leading-relaxed whitespace-pre-wrap">{plan.approach ?? ''}</p>
           </section>
 
           {/* Risks */}

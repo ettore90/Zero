@@ -74,6 +74,7 @@ const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval,
   }, [history.length]);
 
   const commandLog = history.filter(m => (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) || m.role === 'tool');
+  const pendingSensitiveCalls = Array.isArray(pendingApproval?.sensitiveCalls) ? pendingApproval.sensitiveCalls : [];
 
   return (
     <div ref={viewportRef} className="flex-1 min-h-0 overflow-auto">
@@ -129,7 +130,7 @@ const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval,
             <span className="text-orange-300 font-black text-[10px] uppercase tracking-wider">Approval Required</span>
           </div>
           <div className="space-y-1 mb-3 max-h-32 overflow-y-auto custom-scrollbar">
-            {pendingApproval.sensitiveCalls.map((tc, i) => (
+            {pendingSensitiveCalls.map((tc, i) => (
               <div key={i} className="flex items-center gap-2 text-[10px] bg-orange-900/20 rounded px-2 py-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
                 <span className="text-orange-300 font-bold">{tc.function.name}</span>

@@ -81,7 +81,9 @@ export const ExecutionPlanModal: React.FC<ExecutionPlanModalProps> = ({
   onApprove,
   onCancel,
 }) => {
-  const steps: ToolStep[] = toolCalls.map(tc => {
+  const safeToolCalls = Array.isArray(toolCalls) ? toolCalls : [];
+
+  const steps: ToolStep[] = safeToolCalls.map(tc => {
     let args: Record<string, any> = {};
     try { args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments; } catch {}
     return { toolCall: tc, args, risk: classifyRisk(tc.function.name, args) };
@@ -93,7 +95,7 @@ export const ExecutionPlanModal: React.FC<ExecutionPlanModalProps> = ({
   const hasDestructive = steps.some(s => s.risk === 'destructive');
 
   const buildFinalToolCalls = (): ToolCall[] => {
-    return toolCalls.map((tc, i) => {
+    return safeToolCalls.map((tc, i) => {
       if (editedArgs[i] !== undefined) {
         return { ...tc, function: { ...tc.function, arguments: editedArgs[i] } };
       }

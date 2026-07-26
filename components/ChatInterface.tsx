@@ -151,8 +151,9 @@ const MessageItem = memo(({ msg, isGenerating, isLast }: { msg: Message; isGener
   if (msg.role === 'tool') return null;
 
   // Mensagem assistant com tool_calls e sem content textual — mostrar pill com nome das tools
-  if (msg.role === 'assistant' && isActionOnly && msg.tool_calls) {
-    const toolNames = msg.tool_calls.map((tc: ToolCall) => tc.function?.name ?? 'tool').filter(Boolean);
+  if (msg.role === 'assistant' && isActionOnly) {
+    const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+    const toolNames = toolCalls.map((tc: ToolCall) => tc.function?.name ?? 'tool').filter(Boolean);
     return (
       <div className="flex gap-3 justify-start">
         <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center shrink-0 mt-0.5">

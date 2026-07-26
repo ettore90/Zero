@@ -24,7 +24,8 @@ export const useUIState = () => {
   const [pendingPlan, setPendingPlan] = useState<{ agentId: string; toolCalls: any[]; signal?: AbortSignal } | null>(null);
   const [pendingStrategyPlan, setPendingStrategyPlan] = useState<{
     agentId: string;
-    plan: { title: string; objective: string; approach: string; risks?: string; checklist: string[] };
+    requestId?: string;
+    plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
     signal?: AbortSignal;
     onApprove: () => void;
     onReject: () => void;
