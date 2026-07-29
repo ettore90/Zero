@@ -3,6 +3,7 @@ import { CanvasTab } from '../hooks/useCanvasState';
 import { Message, ToolCall } from '../types';
 import { isSessionNoteTab } from './CanvasRail';
 import RichNotesEditor from './RichNotesEditor';
+import StrategyPlanModal from './StrategyPlanModal';
 
 const MonacoEditor = lazy(() => import('@monaco-editor/react'));
 
@@ -15,31 +16,31 @@ interface CommandStreamProps {
 }
 
 const SmartValue = ({ value, depth = 0 }: { value: any; depth?: number }) => {
-  if (value === null || value === undefined) return <span className="text-slate-500 italic">null</span>;
-  if (typeof value === 'boolean') return <span className="text-amber-400">{String(value)}</span>;
-  if (typeof value === 'number') return <span className="text-blue-400">{value}</span>;
+  if (value === null || value === undefined) return <span className="text-slate-500 dark:text-slate-400 italic">null</span>;
+  if (typeof value === 'boolean') return <span className="text-amber-600 dark:text-amber-400">{String(value)}</span>;
+  if (typeof value === 'number') return <span className="text-blue-600 dark:text-blue-400">{value}</span>;
   if (typeof value === 'string') {
     if (value.length > 300) {
       return (
         <details className="inline">
-          <summary className="cursor-pointer text-green-400 hover:text-green-300 select-none">
-            "{value.slice(0, 60)}…" <span className="text-slate-500 text-[9px]">({value.length} chars)</span>
+          <summary className="cursor-pointer text-emerald-700 hover:text-emerald-600 dark:text-green-400 dark:hover:text-green-300 select-none">
+            "{value.slice(0, 60)}…" <span className="text-slate-500 dark:text-slate-500 text-[9px]">({value.length} chars)</span>
           </summary>
-          <pre className="text-green-300 whitespace-pre-wrap break-all mt-1 text-[10px] bg-black/20 p-2 rounded">
+          <pre className="mt-1 rounded bg-slate-100 p-2 text-[10px] whitespace-pre-wrap break-all text-slate-700 dark:bg-black/20 dark:text-green-300">
             {value}
           </pre>
         </details>
       );
     }
-    return <span className="text-green-400">"{value}"</span>;
+    return <span className="text-emerald-700 dark:text-green-400">"{value}"</span>;
   }
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-slate-400">[]</span>;
+    if (value.length === 0) return <span className="text-slate-400 dark:text-slate-500">[]</span>;
     return (
       <div className={depth > 0 ? 'ml-3' : ''}>
         {value.map((item, i) => (
           <div key={i} className="flex gap-1">
-            <span className="text-slate-600 select-none shrink-0">{i}:</span>
+            <span className="text-slate-500 dark:text-slate-600 select-none shrink-0">{i}:</span>
             <SmartValue value={item} depth={depth + 1} />
           </div>
         ))}
@@ -51,14 +52,14 @@ const SmartValue = ({ value, depth = 0 }: { value: any; depth?: number }) => {
       <div className={depth > 0 ? 'ml-3' : ''}>
         {Object.entries(value).map(([k, v]) => (
           <div key={k} className="flex gap-1 items-start min-w-0">
-            <span className="text-slate-400 font-bold shrink-0 text-[9px] uppercase tracking-wider">{k}:</span>
+            <span className="text-slate-500 dark:text-slate-400 font-bold shrink-0 text-[9px] uppercase tracking-wider">{k}:</span>
             <div className="min-w-0 break-all"><SmartValue value={v} depth={depth + 1} /></div>
           </div>
         ))}
       </div>
     );
   }
-  return <span className="text-slate-300">{String(value)}</span>;
+  return <span className="text-slate-700 dark:text-slate-300">{String(value)}</span>;
 };
 
 const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval, agentId, onApprove, onDeny }) => {
@@ -80,8 +81,8 @@ const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval,
     <div ref={viewportRef} className="flex-1 min-h-0 overflow-auto">
       <div ref={streamRef} className="p-3 space-y-3 text-xs font-mono">
         {commandLog.length === 0 && (
-          <div className="text-center py-10 text-slate-600 select-none">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mx-auto mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="select-none py-10 text-center text-slate-500 dark:text-slate-600">
+          <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto mb-2 h-8 w-8 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
           <p className="text-[10px] uppercase tracking-widest">No commands yet</p>
@@ -91,29 +92,29 @@ const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval,
         {commandLog.map((msg, idx) => (
         <div key={msg.timestamp + idx} className="animate-in fade-in duration-200">
           {msg.role === 'assistant' && msg.tool_calls?.map((tc: ToolCall, i: number) => (
-            <div key={i} className="rounded-lg border border-purple-900/40 bg-purple-950/20 overflow-hidden mb-1.5">
-              <div className="flex items-center justify-between px-3 py-1.5 bg-purple-900/20 border-b border-purple-900/30">
-                <div className="flex items-center gap-2 text-purple-400">
-                  <div className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+            <div key={i} className="mb-1.5 overflow-hidden rounded-lg border border-slate-300 bg-white dark:border-purple-900/40 dark:bg-purple-950/20">
+              <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-1.5 dark:border-purple-900/30 dark:bg-purple-900/20">
+                <div className="flex items-center gap-2 text-slate-700 dark:text-purple-400">
+                  <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-purple-500" />
                   <span className="font-bold">{tc.function.name}</span>
                 </div>
-                <span className="text-[9px] text-purple-600">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+                <span className="text-[9px] text-slate-500 dark:text-purple-600">{new Date(msg.timestamp).toLocaleTimeString()}</span>
               </div>
-              <div className="p-2 max-h-40 overflow-y-auto custom-scrollbar">
+              <div className="max-h-40 overflow-y-auto p-2 custom-scrollbar">
                 <SmartValue value={(() => { try { return JSON.parse(tc.function.arguments); } catch { return tc.function.arguments; } })()} />
               </div>
             </div>
           ))}
 
           {msg.role === 'tool' && (
-            <div className="ml-3 rounded-lg border border-slate-800 bg-black/20 overflow-hidden">
-              <div className="flex items-center gap-2 px-3 py-1 bg-white/5 border-b border-white/5">
+            <div className="ml-3 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-black/20">
+              <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1 dark:border-white/5 dark:bg-white/5">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                <span className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Output</span>
+                <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-500">Output</span>
               </div>
-              <div className="p-2 max-h-40 overflow-y-auto custom-scrollbar">
+              <div className="max-h-40 overflow-y-auto p-2 custom-scrollbar">
                 <SmartValue value={(() => { try { return JSON.parse(msg.content); } catch { return msg.content; } })()} />
               </div>
             </div>
@@ -122,24 +123,24 @@ const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval,
       ))}
 
       {pendingApproval && pendingApproval.agentId === agentId && (
-        <div className="sticky bottom-0 rounded-xl border border-orange-500/40 bg-orange-950/40 p-3 shadow-xl animate-in slide-in-from-bottom-2">
-          <div className="flex items-center gap-2 mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-orange-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="sticky bottom-0 animate-in slide-in-from-bottom-2 rounded-xl border border-orange-200 bg-orange-50 p-3 shadow-xl dark:border-orange-500/40 dark:bg-orange-950/40">
+          <div className="mb-2 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0 text-orange-500 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <span className="text-orange-300 font-black text-[10px] uppercase tracking-wider">Approval Required</span>
+            <span className="text-[10px] font-black uppercase tracking-wider text-orange-700 dark:text-orange-300">Approval Required</span>
           </div>
-          <div className="space-y-1 mb-3 max-h-32 overflow-y-auto custom-scrollbar">
+          <div className="mb-3 max-h-32 space-y-1 overflow-y-auto custom-scrollbar">
             {pendingSensitiveCalls.map((tc, i) => (
-              <div key={i} className="flex items-center gap-2 text-[10px] bg-orange-900/20 rounded px-2 py-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
-                <span className="text-orange-300 font-bold">{tc.function.name}</span>
+              <div key={i} className="flex items-center gap-2 rounded bg-orange-100 px-2 py-1 text-[10px] dark:bg-orange-900/20">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500 dark:bg-orange-400" />
+                <span className="font-bold text-orange-700 dark:text-orange-300">{tc.function.name}</span>
               </div>
             ))}
           </div>
           <div className="flex gap-2">
-            <button onClick={onApprove} className="flex-1 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 text-white font-black text-[10px] uppercase tracking-wider transition-colors">✓ Approve</button>
-            <button onClick={onDeny} className="flex-1 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-600 text-white font-black text-[10px] uppercase tracking-wider transition-colors">✗ Deny</button>
+            <button onClick={onApprove} className="flex-1 rounded-lg bg-green-600 py-1.5 text-[10px] font-black uppercase tracking-wider text-white transition-colors hover:bg-green-500">✓ Approve</button>
+            <button onClick={onDeny} className="flex-1 rounded-lg bg-red-600/80 py-1.5 text-[10px] font-black uppercase tracking-wider text-white transition-colors hover:bg-red-600">✗ Deny</button>
           </div>
         </div>
       )}
@@ -267,7 +268,18 @@ export interface CodeCanvasProps {
   agentId: string;
   hasSessionNoteTarget: boolean;
   pendingApproval: { agentId: string; toolCalls: ToolCall[]; sensitiveCalls: ToolCall[] } | null;
-  selectedApproval?: { id: string; title?: string | null; toolCalls?: ToolCall[]; sensitiveCalls?: ToolCall[]; source?: string } | null;
+  selectedApproval?: {
+    id: string;
+    title?: string | null;
+    toolCalls?: ToolCall[];
+    sensitiveCalls?: ToolCall[];
+    source?: string;
+    plan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
+    onApprove?: (revisedPlan?: any) => void;
+    onReject?: () => void;
+    onMarkCompleted?: () => void;
+    status?: 'open' | 'in_progress' | 'completed';
+  } | null;
   isApprovalsSectionOpen?: boolean;
   onApproveTool: () => void;
   onDenyTool: () => void;
@@ -326,6 +338,47 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
   };
 
   const renderApprovalSurface = () => {
+    if (selectedApproval?.source === 'pendingStrategyPlan' && selectedApproval.plan) {
+      const statusLabel = selectedApproval?.status === 'open' ? 'Open' : selectedApproval?.status === 'in_progress' ? 'In progress' : selectedApproval?.status === 'completed' ? 'Completed' : null;
+      const canApprove = selectedApproval?.status === 'open' && typeof selectedApproval.onApprove === 'function';
+      const canReject = selectedApproval?.status === 'open' && typeof selectedApproval.onReject === 'function';
+      const isReadOnlyCompleted = selectedApproval?.status === 'completed';
+      const canMarkCompleted = selectedApproval?.status === 'in_progress' && typeof selectedApproval.onMarkCompleted === 'function';
+      return (
+        <CanvasViewport className={isDarkTheme ? "bg-[#1e1e1e]" : "bg-white"}>
+          <div className={`flex h-full min-h-0 min-w-0 flex-col ${isDarkTheme ? "bg-[#1e1e1e] text-slate-200" : "bg-white text-slate-700"}`}>
+            <div className={`flex items-center justify-between gap-3 border-b px-5 py-3 ${isDarkTheme ? "border-slate-800" : "border-slate-200"}`}>
+              <div className="min-w-0">
+                <div className={`text-[10px] font-black uppercase tracking-[0.24em] ${isDarkTheme ? "text-slate-500" : "text-slate-500"}`}>Strategy plan</div>
+                <div className={`mt-1 truncate text-sm font-semibold ${isDarkTheme ? "text-white" : "text-slate-900"}`}>{selectedApproval.title || 'Plan approval'}</div>
+              </div>
+              {statusLabel && (
+                <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${selectedApproval?.status === 'open'
+                  ? (isDarkTheme ? 'border-amber-500/20 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-100 text-amber-700')
+                  : selectedApproval?.status === 'in_progress'
+                  ? (isDarkTheme ? 'border-blue-500/20 bg-blue-500/10 text-blue-300' : 'border-blue-300 bg-blue-100 text-blue-700')
+                  : (isDarkTheme ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-emerald-300 bg-emerald-100 text-emerald-700')}`}>{statusLabel}</span>
+              )}
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <StrategyPlanModal
+                embedded
+                plan={selectedApproval.plan}
+                agentName="Agent"
+                onApprove={canApprove ? (selectedApproval.onApprove as any) : (() => {})}
+                onReject={canReject ? (selectedApproval.onReject as any) : (() => {})}
+                primaryActionLabel={canMarkCompleted ? 'Mark completed' : undefined}
+                onPrimaryAction={canMarkCompleted ? (() => selectedApproval.onMarkCompleted?.()) : null}
+                hideRejectButton={!canReject || isReadOnlyCompleted}
+                hidePrimaryButton={isReadOnlyCompleted}
+                reviewSummaryText={selectedApproval?.status === 'open' ? 'Awaiting decision.' : selectedApproval?.status === 'in_progress' ? 'Approved and currently tracked as in progress.' : 'This plan has been marked as completed.'}
+              />
+            </div>
+          </div>
+        </CanvasViewport>
+      );
+    }
+
     const hasToolCallsArray = Array.isArray(selectedApproval?.toolCalls);
     const hasSensitiveCallsArray = Array.isArray(selectedApproval?.sensitiveCalls);
     if (!hasToolCallsArray && !hasSensitiveCallsArray) {
@@ -334,39 +387,39 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
     const safeToolCalls = hasToolCallsArray ? selectedApproval!.toolCalls! : [];
     const safeSensitiveCalls = hasSensitiveCallsArray ? selectedApproval!.sensitiveCalls! : [];
     return (
-      <CanvasViewport className="bg-[#1e1e1e]">
-        <div className="flex h-full min-h-0 min-w-0 flex-col overflow-auto p-5 text-slate-200">
-          <div className="mb-4 rounded-xl border border-orange-500/30 bg-orange-950/20 p-4">
-            <div className="text-[10px] font-black uppercase tracking-[0.24em] text-orange-300">Approval Details</div>
-            <div className="mt-2 text-lg font-semibold text-white">{selectedApproval?.title || 'Approval'}</div>
-            <div className="mt-1 text-xs text-slate-400">ID: {selectedApproval?.id || 'n/a'}</div>
-            <div className="mt-2 text-sm text-slate-300">Read-only preview of the selected approval context.</div>
+      <CanvasViewport className={isDarkTheme ? "bg-[#1e1e1e]" : "bg-white"}>
+        <div className={`flex h-full min-h-0 min-w-0 flex-col overflow-auto p-5 ${isDarkTheme ? "text-slate-200" : "text-slate-700"}`}>
+          <div className={`mb-4 rounded-xl border p-4 ${isDarkTheme ? "border-orange-500/30 bg-orange-950/20" : "border-orange-200 bg-orange-50"}`}>
+            <div className={`text-[10px] font-black uppercase tracking-[0.24em] ${isDarkTheme ? "text-orange-300" : "text-orange-700"}`}>Approval Details</div>
+            <div className={`mt-2 text-lg font-semibold ${isDarkTheme ? "text-white" : "text-slate-900"}`}>{selectedApproval?.title || 'Approval'}</div>
+            <div className={`mt-1 text-xs ${isDarkTheme ? "text-slate-400" : "text-slate-500"}`}>ID: {selectedApproval?.id || 'n/a'}</div>
+            <div className={`mt-2 text-sm ${isDarkTheme ? "text-slate-300" : "text-slate-600"}`}>Read-only preview of the selected approval context.</div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-              <div className="mb-3 text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Sensitive Calls</div>
+            <div className={`rounded-xl border p-4 ${isDarkTheme ? "border-slate-800 bg-slate-900/40" : "border-slate-200 bg-slate-50"}`}>
+              <div className={`mb-3 text-[10px] font-black uppercase tracking-[0.24em] ${isDarkTheme ? "text-slate-400" : "text-slate-500"}`}>Sensitive Calls</div>
               <div className="space-y-2">
                 {safeSensitiveCalls.length === 0 ? (
-                  <div className="text-xs text-slate-500">No sensitive calls detected.</div>
+                  <div className={`text-xs ${isDarkTheme ? "text-slate-500" : "text-slate-500"}`}>No sensitive calls detected.</div>
                 ) : safeSensitiveCalls.map((tc, index) => (
-                  <div key={`${tc?.id || tc?.function?.name || 'sensitive'}-${index}`} className="rounded-lg border border-orange-500/20 bg-orange-950/10 px-3 py-2">
-                    <div className="text-xs font-semibold text-orange-300">{tc?.function?.name || 'Unknown tool'}</div>
-                    <div className="mt-1 text-[11px] text-slate-400 break-all">{tc?.function?.arguments || '{}'}</div>
+                  <div key={`${tc?.id || tc?.function?.name || 'sensitive'}-${index}`} className={`rounded-lg border px-3 py-2 ${isDarkTheme ? "border-orange-500/20 bg-orange-950/10" : "border-orange-200 bg-orange-50"}`}>
+                    <div className={`text-xs font-semibold ${isDarkTheme ? "text-orange-300" : "text-orange-700"}`}>{tc?.function?.name || 'Unknown tool'}</div>
+                    <div className={`mt-1 break-all text-[11px] ${isDarkTheme ? "text-slate-400" : "text-slate-600"}`}>{tc?.function?.arguments || '{}'}</div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-              <div className="mb-3 text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">All Tool Calls</div>
+            <div className={`rounded-xl border p-4 ${isDarkTheme ? "border-slate-800 bg-slate-900/40" : "border-slate-200 bg-slate-50"}`}>
+              <div className={`mb-3 text-[10px] font-black uppercase tracking-[0.24em] ${isDarkTheme ? "text-slate-400" : "text-slate-500"}`}>All Tool Calls</div>
               <div className="space-y-2">
                 {safeToolCalls.length === 0 ? (
-                  <div className="text-xs text-slate-500">No tool calls available.</div>
+                  <div className={`text-xs ${isDarkTheme ? "text-slate-500" : "text-slate-500"}`}>No tool calls available.</div>
                 ) : safeToolCalls.map((tc, index) => (
-                  <div key={`${tc?.id || tc?.function?.name || 'tool'}-${index}`} className="rounded-lg border border-slate-700 bg-black/20 px-3 py-2">
-                    <div className="text-xs font-semibold text-nebula-200">{tc?.function?.name || 'Unknown tool'}</div>
-                    <div className="mt-1 text-[11px] text-slate-400 break-all">{tc?.function?.arguments || '{}'}</div>
+                  <div key={`${tc?.id || tc?.function?.name || 'tool'}-${index}`} className={`rounded-lg border px-3 py-2 ${isDarkTheme ? "border-slate-700 bg-black/20" : "border-slate-200 bg-white"}`}>
+                    <div className={`text-xs font-semibold ${isDarkTheme ? "text-nebula-200" : "text-nebula-700"}`}>{tc?.function?.name || 'Unknown tool'}</div>
+                    <div className={`mt-1 break-all text-[11px] ${isDarkTheme ? "text-slate-400" : "text-slate-600"}`}>{tc?.function?.arguments || '{}'}</div>
                   </div>
                 ))}
               </div>
@@ -378,32 +431,32 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
   };
 
   const renderApprovalPayloadEmptyState = () => (
-    <CanvasViewport className="bg-[#1e1e1e]">
-      <div className="flex h-full min-h-0 min-w-0 items-center justify-center text-slate-500">
-        <div className="flex flex-col items-center gap-2 text-center px-6">
-          <div className="text-sm font-medium text-slate-300">Approval data unavailable</div>
-          <div className="text-[12px] text-slate-500">The selected approval does not contain readable tool call details.</div>
+    <CanvasViewport className={isDarkTheme ? "bg-[#1e1e1e]" : "bg-white"}>
+      <div className={`flex h-full min-h-0 min-w-0 items-center justify-center ${isDarkTheme ? "text-slate-500" : "text-slate-500"}`}>
+        <div className="flex flex-col items-center gap-2 px-6 text-center">
+          <div className={`text-sm font-medium ${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>Approval data unavailable</div>
+          <div className={`text-[12px] ${isDarkTheme ? "text-slate-500" : "text-slate-500"}`}>The selected approval does not contain readable tool call details.</div>
         </div>
       </div>
     </CanvasViewport>
   );
 
   const renderApprovalsEmptyState = () => (
-    <CanvasViewport className="bg-[#1e1e1e]">
-      <div className="flex h-full min-h-0 min-w-0 items-center justify-center text-slate-500">
-        <div className="flex flex-col items-center gap-2 text-center px-6">
-          <div className="text-sm font-medium text-slate-300">No approval selected</div>
-          <div className="text-[12px] text-slate-500">Choose an approval from the right panel to inspect it here.</div>
+    <CanvasViewport className={isDarkTheme ? "bg-[#1e1e1e]" : "bg-white"}>
+      <div className={`flex h-full min-h-0 min-w-0 items-center justify-center ${isDarkTheme ? "text-slate-500" : "text-slate-500"}`}>
+        <div className="flex flex-col items-center gap-2 px-6 text-center">
+          <div className={`text-sm font-medium ${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>No approval selected</div>
+          <div className={`text-[12px] ${isDarkTheme ? "text-slate-500" : "text-slate-500"}`}>Choose an approval from the right panel to inspect it here.</div>
         </div>
       </div>
     </CanvasViewport>
   );
 
   const renderEmptyState = () => (
-    <CanvasViewport className="bg-[#1e1e1e]">
-      <div className="flex h-full min-h-0 min-w-0 items-center justify-center text-slate-500">
-        <div className="flex flex-col items-center gap-2 text-center px-6">
-          <div className="text-sm font-medium text-slate-300">Canvas ready</div>
+    <CanvasViewport className={isDarkTheme ? "bg-[#1e1e1e]" : "bg-white"}>
+      <div className={`flex h-full min-h-0 min-w-0 items-center justify-center ${isDarkTheme ? "text-slate-500" : "text-slate-500"}`}>
+        <div className="flex flex-col items-center gap-2 px-6 text-center">
+          <div className={`text-sm font-medium ${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>Canvas ready</div>
           <div className="text-[12px] text-slate-500">Use the rail to open a Note, Scratch Pad, or Stream.</div>
         </div>
       </div>

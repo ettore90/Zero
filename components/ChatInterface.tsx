@@ -25,6 +25,15 @@ interface ChatInterfaceProps {
     toolCalls: ToolCall[];
     sensitiveCalls: ToolCall[];
   } | null;
+  strategyPlanItems?: any[];
+  pendingStrategyPlan?: {
+    agentId: string;
+    requestId?: string;
+    plan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
+    signal?: AbortSignal;
+    onApprove: () => void;
+    onReject: () => void;
+  } | null;
   onApproveTool: () => void;
   onDenyTool: () => void;
   onStop: () => void;
@@ -43,7 +52,24 @@ interface ChatInterfaceProps {
   scanDraft?: import('../types').ProjectContext | null;
   onApproveContext?: (ctx: import('../types').ProjectContext) => void;
   onDismissDraft?: () => void;
+  onMarkStrategyPlanCompleted?: (planId: string) => void;
 }
+
+type ApprovalItem = {
+  id: string;
+  title?: string | null;
+  toolCalls?: ToolCall[];
+  sensitiveCalls?: ToolCall[];
+  source?: string;
+  plan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
+  onApprove?: (revisedPlan?: any) => void;
+  onReject?: () => void;
+  onMarkCompleted?: () => void;
+  status?: 'open' | 'in_progress' | 'completed';
+  createdAt?: string;
+  updatedAt?: string;
+  unread?: boolean;
+};
 
 interface PendingFile {
   id: string;
@@ -105,6 +131,7 @@ const ThoughtRenderer = memo(({ content, isUser }: { content: string; isUser: bo
 // MessageItem (sem alterações estruturais)
 // ---------------------------------------------------------------------------
 const MessageItem = memo(({ msg, isGenerating, isLast }: { msg: Message; isGenerating: boolean; isLast: boolean }) => {
+  if ((msg as any)?.meta?.internal && (msg as any)?.meta?.approvalDecision) return null;
   const isUser = msg.role === 'user';
   const isActionOnly = msg.role === 'assistant' && !msg.content && msg.tool_calls && msg.tool_calls.length > 0;
   const isEmpty = msg.role === 'assistant' && (!msg.content || msg.content.trim() === '') && !msg.tool_calls?.length;
@@ -724,6 +751,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onClearSummary,
   isGenerating,
   pendingApproval,
+  strategyPlanItems = [],
+  pendingStrategyPlan,
   onApproveTool,
   onDenyTool,
   onStop,
@@ -742,6 +771,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   scanDraft,
   onApproveContext,
   onDismissDraft,
+  onMarkStrategyPlanCompleted,
 }) => {
   const canvas = (useCanvasState as any)(agent.id);
   const [isCanvasProjectTreeSectionOpen, setIsCanvasProjectTreeSectionOpen] = useState(false);
@@ -848,6 +878,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [pendingApproval, agent.id]);
 
+
   const shellState = {
     isCanvasVisible: canvas.isCanvasVisible,
     isCanvasProjectTreeSectionOpen,
@@ -922,31 +953,86 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }, [username, canvas, sessionSnapshot.notes, selectSessionNoteLocally]);
 
 
-  const approvalItems = React.useMemo(() => {
-    if (!pendingApproval || pendingApproval.agentId !== agent.id) return [];
-    const toolCalls = Array.isArray((pendingApproval as any).toolCalls) ? (pendingApproval as any).toolCalls : [];
-    const sensitiveCalls = Array.isArray((pendingApproval as any).sensitiveCalls) ? (pendingApproval as any).sensitiveCalls : [];
-    const toolSignature = toolCalls
-      .map((tc: any) => `${String(tc?.id || '')}:${String(tc?.function?.name || '')}:${String(tc?.function?.arguments || '')}`)
-      .join('|');
-    const approvalId = `pending:${agent.id}:${toolCalls.length}:${sensitiveCalls.length}:${toolSignature}`;
-    return [{
-      id: approvalId,
-      title: sensitiveCalls.length > 0 ? `Pending approval (${sensitiveCalls.length} sensitive)` : 'Pending approval',
-      toolCalls,
-      sensitiveCalls,
-      source: 'pendingApproval',
-    }];
-  }, [pendingApproval, agent.id]);
-  const [activeApprovalId, setActiveApprovalId] = React.useState<string | null>(null);
+    const [activeApprovalId, setActiveApprovalId] = React.useState<string | null>(null);
+  const [seenApprovalIds, setSeenApprovalIds] = React.useState<string[]>([]);
+const approvalItems = React.useMemo(() => {
+    const items: ApprovalItem[] = [];
+    const trackedPlans = Array.isArray(strategyPlanItems)
+      ? strategyPlanItems
+          .filter((item: any) => item && item.agentId === agent.id)
+          .sort((a: any, b: any) => String(b?.updatedAt || '').localeCompare(String(a?.updatedAt || '')))
+      : [];
+
+    trackedPlans.forEach((item: any) => {
+      const plan = item?.plan && typeof item.plan === 'object' ? item.plan : {};
+      const trackedId = String(item?.id || item?.requestId || `strategy-plan:${agent.id}`).trim();
+      if (!trackedId) return;
+      const livePending = pendingStrategyPlan
+        && pendingStrategyPlan.agentId === agent.id
+        && String(pendingStrategyPlan.requestId || `strategy-plan:${agent.id}`).trim() === trackedId;
+      items.push({
+        id: trackedId,
+        title: typeof plan.title === 'string' && plan.title.trim() ? plan.title : 'Plan approval',
+        plan: livePending && pendingStrategyPlan?.plan && typeof pendingStrategyPlan.plan === 'object' ? pendingStrategyPlan.plan : plan,
+        toolCalls: [],
+        sensitiveCalls: [],
+        source: 'pendingStrategyPlan',
+        status: item?.status,
+        createdAt: item?.createdAt,
+        updatedAt: item?.updatedAt,
+        onApprove: item?.status === 'open'
+          ? (typeof item?.onApprove === 'function'
+              ? item.onApprove
+              : livePending && typeof pendingStrategyPlan.onApprove === 'function'
+                ? pendingStrategyPlan.onApprove
+                : undefined)
+          : undefined,
+        onReject: item?.status === 'open'
+          ? (typeof item?.onReject === 'function'
+              ? item.onReject
+              : livePending && typeof pendingStrategyPlan.onReject === 'function'
+                ? pendingStrategyPlan.onReject
+                : undefined)
+          : undefined,
+        onMarkCompleted: item?.status === 'in_progress' && typeof onMarkStrategyPlanCompleted === 'function'
+          ? (() => onMarkStrategyPlanCompleted(trackedId))
+          : undefined,
+        unread: !seenApprovalIds.includes(trackedId) && item?.status === 'open',
+      } as any);
+    });
+
+    if (pendingApproval && pendingApproval.agentId === agent.id) {
+      const toolCalls = Array.isArray((pendingApproval as any).toolCalls) ? (pendingApproval as any).toolCalls : [];
+      const sensitiveCalls = Array.isArray((pendingApproval as any).sensitiveCalls) ? (pendingApproval as any).sensitiveCalls : [];
+      const toolSignature = toolCalls
+        .map((tc: any) => `${String(tc?.id || '')}:${String(tc?.function?.name || '')}:${String(tc?.function?.arguments || '')}`)
+        .join('|');
+      const approvalId = `pending:${agent.id}:${toolCalls.length}:${sensitiveCalls.length}:${toolSignature}`;
+      items.push({
+        id: approvalId,
+        title: sensitiveCalls.length > 0 ? `Pending approval (${sensitiveCalls.length} sensitive)` : 'Pending approval',
+        toolCalls,
+        sensitiveCalls,
+        source: 'pendingApproval',
+        unread: !seenApprovalIds.includes(approvalId),
+      });
+    }
+
+    return items;
+  }, [pendingApproval, pendingStrategyPlan, strategyPlanItems, agent.id, onMarkStrategyPlanCompleted, seenApprovalIds]);
 
   React.useEffect(() => {
-    if (approvalItems.length > 0) {
-      setActiveApprovalId((prev) => (prev && approvalItems.some((item) => item.id === prev) ? prev : approvalItems[0].id));
+    if (approvalItems.length === 0) {
+      setActiveApprovalId(null);
       return;
     }
-    setActiveApprovalId(null);
+    setActiveApprovalId((prev) => {
+      if (prev && approvalItems.some((item) => item.id === prev)) return prev;
+      const preferred = approvalItems.find((item) => !item.unread) ?? approvalItems[0];
+      return preferred?.id ?? null;
+    });
   }, [approvalItems]);
+
 
   const shellActions = {
     onEditAgent: onEditAgent ?? (() => {}),
@@ -969,7 +1055,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const canonicalApprovalId = String(approvalId || '').trim();
       if (!canonicalApprovalId) return;
       setActiveApprovalId(canonicalApprovalId);
-      setIsCanvasApprovalsSectionOpen(true);
+      setSeenApprovalIds((prev) => prev.includes(canonicalApprovalId) ? prev : [...prev, canonicalApprovalId]);
+      if (!canvas.isCanvasVisible) canvas.toggleCanvas();
+      canvas.setActiveCanvasTab('editor');
+      setIsCanvasApprovalsSectionOpen(false);
       setIsCanvasProjectTreeSectionOpen(false);
       setIsCanvasSessionNotesSectionOpen(false);
     },
@@ -984,6 +1073,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       <ChatCanvasShell
         agent={agent as any}
         pendingApproval={pendingApproval}
+        hasCommandApproval={!!(pendingApproval && pendingApproval.agentId === agent.id)}
+        hasApprovalsBadge={approvalItems.some((item) => item.unread)}
         chatContent={<ChatPanel agent={agent} isGenerating={isGenerating} onSendMessage={onSendMessage} onClearSummary={onClearSummary} onStop={onStop} syncStatus={syncStatus} isChatVisible={isChatVisible} onToggleChat={onToggleChat} />}
         isChatVisible={isChatVisible}
         shellState={shellState}

@@ -12,7 +12,7 @@ import { containerToHost, hostToContainer } from '../utils/pathTransforms.js';
 import { withExclusiveFileLock, atomicWriteJson } from '../utils/fileLock.js';
 import { readFileSafe, writeFileSafe } from '../utils/fs.js';
 import { escapeShellArg, splitCommand } from '../utils/ssh.js';
-import { sessionStore, pendingApprovals, runningAgentControllers, globalCircuitBreaker } from './runtime.js';
+import { sessionStore, pendingApprovals, approvalDecisions, approvalDeliveryQueue, runningAgentControllers, approvalFlushInFlight, globalCircuitBreaker } from './runtime.js';
 import { broadcastToUser } from './streamBroker.js';
 import { createSubagentAudit, appendSubagentAuditLog, finalizeSubagentAudit, serializeJson } from './subagentAuditService.js';
 import http2 from 'http2';
@@ -50,6 +50,49 @@ function setCwd(agentId, cwd) {
 }
 
 const BASH_BIN = fs.existsSync('/bin/bash') ? '/bin/bash' : '/bin/sh';
+
+export function flushApprovalContinuationIfIdle({ username, agentId, sessionId, modelId, timeoutMs } = {}) {
+  const safeUsername = typeof username === 'string' ? username.trim() : '';
+  const safeAgentId = typeof agentId === 'string' ? agentId.trim() : '';
+  const safeSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
+  if (!safeUsername || !safeAgentId || !safeSessionId) return false;
+
+  const loopKey = `${safeUsername}:${safeAgentId}:${safeSessionId}`;
+  if (runningAgentControllers.has(loopKey)) return false;
+  if (approvalFlushInFlight.get(loopKey) === true) return false;
+  const queued = approvalDeliveryQueue.get(loopKey);
+  if (!Array.isArray(queued) || queued.length === 0) return false;
+
+  approvalFlushInFlight.set(loopKey, true);
+  setTimeout(() => {
+    try {
+      if (runningAgentControllers.has(loopKey)) return;
+      const freshQueue = approvalDeliveryQueue.get(loopKey);
+      if (!Array.isArray(freshQueue) || freshQueue.length === 0) return;
+      const session = sessionStore.getSession(safeSessionId);
+      const persistedMessages = Array.isArray(session?.messages) ? session.messages : [];
+      runAgentLoop({
+        username: safeUsername,
+        agentId: safeAgentId,
+        messages: persistedMessages,
+        modelId: modelId || undefined,
+        isEphemeral: false,
+        timeoutMs,
+        sessionId: safeSessionId,
+      }).catch((err) => {
+        console.error('[AgentLoop] Failed to flush same-session approval while idle:', err?.message || err);
+      }).finally(() => {
+        approvalFlushInFlight.delete(loopKey);
+      });
+      return;
+    } catch (err) {
+      console.error('[AgentLoop] Failed to schedule idle approval flush:', err?.message || err);
+    }
+    approvalFlushInFlight.delete(loopKey);
+  }, 0);
+
+  return true;
+}
 
 function resolveSafePath(targetPath) {
   const raw = String(targetPath || '/');
@@ -1711,6 +1754,57 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
     ? (sessionId || agent?.activeSessionId || `session-${agentId}-default`)
     : null;
 
+
+  const queueApprovalContinuationIfNeeded = () => {
+    if (isEphemeral || !targetSessionId || disableSessionPersistence) return;
+    const queued = approvalDeliveryQueue.get(loopKey);
+    if (!Array.isArray(queued) || queued.length === 0) return;
+    const [nextDecision, ...rest] = queued;
+    if (rest.length > 0) approvalDeliveryQueue.set(loopKey, rest);
+    else approvalDeliveryQueue.delete(loopKey);
+
+    try {
+      const approvalRecord = nextDecision?.requestId ? pendingApprovals.get(nextDecision.requestId) : null;
+      const decisionApproved = nextDecision?.approved === true;
+      const planPayload = approvalRecord?.payload || {};
+      const continuationMessage = {
+        role: 'user',
+        content: decisionApproved
+          ? `System approval update for pending plan request ${nextDecision.requestId}: the user APPROVED the plan for this same session. Continue execution using the approved plan payload: ${JSON.stringify(planPayload)}`
+          : `System approval update for pending plan request ${nextDecision.requestId}: the user REJECTED the plan for this same session. Do not execute the proposed plan. Consider responding with a revised plan or asking for clarification. Original plan payload: ${JSON.stringify(planPayload)}`,
+        timestamp: Date.now(),
+        meta: {
+          internal: true,
+          approvalDecision: true,
+          requestId: nextDecision?.requestId || null,
+          approved: decisionApproved,
+          sessionId: targetSessionId,
+        },
+      };
+      sessionStore.appendMessages(targetSessionId, [continuationMessage]);
+      broadcastToUser(username, 'session_updated', {
+        agentId,
+        sessionId: targetSessionId,
+        messageCount: Array.isArray(sessionStore.getSession(targetSessionId)?.messages) ? sessionStore.getSession(targetSessionId).messages.length : undefined,
+      });
+      setTimeout(() => {
+        runAgentLoop({
+          username,
+          agentId,
+          messages: [...history, continuationMessage],
+          modelId: modelIdOverride,
+          isEphemeral: false,
+          timeoutMs,
+          sessionId: targetSessionId,
+        }).catch((err) => {
+          console.error('[AgentLoop] Failed to continue same-session approval delivery:', err?.message || err);
+        });
+      }, 0);
+    } catch (err) {
+      console.error('[AgentLoop] Failed to queue same-session approval continuation:', err?.message || err);
+    }
+  };
+
   const persistHistorySnapshot = () => {
     if (isEphemeral || !targetSessionId || disableSessionPersistence) return;
 
@@ -2297,34 +2391,40 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
 
         if (toolName === 'request_plan_approval') {
           const requestId = `approval-${Date.now()}`;
+          const approvalRecord = {
+            requestId,
+            username,
+            agentId,
+            sessionId: sessionId || null,
+            tool_call_id: tc.id,
+            payload: { ...toolArgs },
+            status: 'pending',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          pendingApprovals.set(requestId, approvalRecord);
+          approvalDecisions.delete(requestId);
           broadcastToUser(username, 'approval_required', {
             requestId,
+            agentId,
+            sessionId: sessionId || null,
             tool_call_id: tc.id,
+            status: 'pending',
             ...toolArgs,
           });
 
-          try {
-            await Promise.race([
-              new Promise((resolve, reject) => {
-                pendingApprovals.set(requestId, { resolve, reject });
-              }),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Approval timeout')), 300000)),
-            ]);
-
-            toolResults.push({
-              tool_call_id: tc.id,
-              role: 'tool',
-              name: toolName,
-              content: JSON.stringify({ approved: true }),
-            });
-          } catch (err) {
-            toolResults.push({
-              tool_call_id: tc.id,
-              role: 'tool',
-              name: toolName,
-              content: JSON.stringify({ approved: true, auto: true, reason: err.message }),
-            });
-          }
+          toolResults.push({
+            tool_call_id: tc.id,
+            role: 'tool',
+            name: toolName,
+            content: JSON.stringify({
+              status: 'awaiting_user_approval',
+              approved: false,
+              pending: true,
+              requestId,
+              sessionId: sessionId || null,
+            }),
+          });
 
           continue;
         }
@@ -2443,6 +2543,7 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
     throw err;
   } finally {
     runningAgentControllers.delete(loopKey);
+    queueApprovalContinuationIfNeeded();
   }
 
   persistHistorySnapshot();

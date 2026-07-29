@@ -7,6 +7,8 @@ import CodeCanvas from './CodeCanvas';
 export interface ChatCanvasShellProps {
   agent: { id: string; activeSessionId?: string | null; history: Message[] | { messages?: Message[] } };
   pendingApproval: { agentId: string } | null;
+  hasCommandApproval?: boolean;
+  hasApprovalsBadge?: boolean;
   isChatVisible: boolean;
   chatContent: ReactNode;
   shellState: {
@@ -53,6 +55,8 @@ export interface ChatCanvasShellProps {
 const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
   agent,
   pendingApproval,
+  hasCommandApproval = false,
+  hasApprovalsBadge = false,
   isChatVisible,
   chatContent,
   shellState,
@@ -192,7 +196,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
     activeTabId: canvas.activeTabId,
     activeCanvasTab: canvas.activeCanvasTab,
     hasSessionNoteTarget,
-    pendingApproval: !!pendingApproval && pendingApproval.agentId === agent.id,
+    pendingApproval: hasApprovalsBadge,
     isProjectTreeSectionOpen: isCanvasProjectTreeSectionOpen,
     isSessionNotesSectionOpen: isCanvasSessionNotesSectionOpen,
     isApprovalsSectionOpen: isCanvasApprovalsSectionOpen,
@@ -301,7 +305,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       agentHistory={Array.isArray((agent as any).history) ? (agent as any).history : ((agent as any).history?.messages || [])}
       agentId={agent.id}
       hasSessionNoteTarget={hasSessionNoteTarget}
-      pendingApproval={pendingApproval as any}
+      pendingApproval={hasCommandApproval ? (pendingApproval as any) : null}
       onApproveTool={shellActions.onApproveTool}
       onDenyTool={shellActions.onDenyTool}
       selectedApproval={normalizedSelectedApproval}

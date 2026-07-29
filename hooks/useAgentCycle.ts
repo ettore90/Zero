@@ -339,6 +339,28 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
                   opts.agentsRef.current = next;
                   return next;
                 });
+              } else if (event === 'session_updated') {
+                if (data?.agentId !== targetAgentId) return;
+                const eventSessionId = typeof data?.sessionId === 'string' ? data.sessionId : activeSessionId;
+                if (!eventSessionId || eventSessionId !== activeSessionId) return;
+                fetch(`${LOCAL_BASE}/api/sessions/${encodeURIComponent(eventSessionId)}?username=${encodeURIComponent(resolvedUsername)}`)
+                  .then(res => res.ok ? res.json() : null)
+                  .then(payload => {
+                    const freshSession = payload?.session;
+                    if (!freshSession?.messages) return;
+                    opts.setAgents(prev => {
+                      const idx = prev.findIndex(a => a.id === targetAgentId);
+                      if (idx === -1) return prev;
+                      const next = [...prev];
+                      const agentCopy = { ...next[idx] };
+                      if (agentCopy.activeSessionId !== eventSessionId) return prev;
+                      agentCopy.history = freshSession.messages;
+                      next[idx] = agentCopy;
+                      opts.agentsRef.current = next;
+                      return next;
+                    });
+                  })
+                  .catch(() => {});
               } else if (event === 'memory_metrics') {
                 opts.addLog({
                   id: `${Date.now()}-memory-metrics`,

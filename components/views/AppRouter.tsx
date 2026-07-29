@@ -41,6 +41,9 @@ interface AppRouterProps {
   syncStatus: 'idle' | 'saving' | 'saved' | 'error';
   isGenerating: boolean;
   pendingApproval: any;
+  strategyPlanItems?: any;
+  pendingStrategyPlan?: any;
+  onMarkStrategyPlanCompleted?: (planId: string) => void;
   sessionNoteRemoteRefreshKey?: number;
   projects?: Project[];
   activeProjectId?: string | null;
@@ -64,7 +67,7 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     setPersistedAgents, setShowAgentManager, setEditingAgent,
     handleSendMessage, handleRunWorkflow, handleSaveWorkflow,
     onApproveTool, onDenyTool, onStop, syncStatus, isGenerating,
-    pendingApproval, sessionNoteRemoteRefreshKey, projects = [], activeProjectId = null, onSelectProject,
+    pendingApproval, strategyPlanItems, pendingStrategyPlan, onMarkStrategyPlanCompleted, sessionNoteRemoteRefreshKey, projects = [], activeProjectId = null, onSelectProject,
     onAddProject, onEditProject, onDeleteProject,
     onScanProject, scanLoading, scanDraft, onApproveContext, onDismissDraft,
   } = props;
@@ -80,6 +83,9 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
           onClearSummary={() => setPersistedAgents(agents.map(a => a.id === activeAgent.id ? { ...a, summary: '' } : a))}
           isGenerating={isGenerating}
           pendingApproval={pendingApproval}
+          strategyPlanItems={strategyPlanItems}
+          pendingStrategyPlan={pendingStrategyPlan}
+          onMarkStrategyPlanCompleted={onMarkStrategyPlanCompleted}
           onApproveTool={onApproveTool}
           onDenyTool={onDenyTool}
           onStop={onStop}

@@ -133,7 +133,6 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
       ariaLabel: 'Stream',
       active: activeCanvasTab === 'commands',
       onClick: onSwitchToCommands,
-      badge: pendingApproval,
       icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.25 6.75L21 12l-3.75 5.25M2.25 6.75L6 12l-3.75 5.25M8.25 19.5l7.5-15" />,
     },
     {
@@ -193,9 +192,6 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
               </>
             )}
           </svg>
-          {pendingApproval && !isCompactExpanded && (
-            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-orange-400 animate-pulse" />
-          )}
         </button>
       </div>
     );

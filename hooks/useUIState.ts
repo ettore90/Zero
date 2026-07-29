@@ -6,6 +6,23 @@ import { useState } from 'react';
 import { Agent, ToolCall } from '../types';
 import { DryRunPayload } from '../components/DryRunModal';
 
+
+export type StrategyPlanTrackingStatus = 'open' | 'in_progress' | 'completed';
+
+export interface StrategyPlanTrackingItem {
+  id: string;
+  agentId: string;
+  requestId?: string;
+  source: 'strategyPlanTracking';
+  status: StrategyPlanTrackingStatus;
+  plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
+  createdAt: string;
+  updatedAt: string;
+  onApprove?: (revisedPlan?: any) => void;
+  onReject?: () => void;
+}
+
+
 export const useUIState = () => {
   const [isProjectPanelOpen, setIsProjectPanelOpen] = useState(false);
   const [isOrchestrationPanelOpen, setIsOrchestrationPanelOpen] = useState(false);
@@ -27,10 +44,11 @@ export const useUIState = () => {
     requestId?: string;
     plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
     signal?: AbortSignal;
-    onApprove: () => void;
+    onApprove: (revisedPlan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] }) => void;
     onReject: () => void;
   } | null>(null);
   const [pendingDryRun, setPendingDryRun] = useState<{ payload: DryRunPayload; resolve: (v: boolean) => void } | null>(null);
+  const [strategyPlanItems, setStrategyPlanItems] = useState<StrategyPlanTrackingItem[]>([]);
   const [pendingApproval, setPendingApproval] = useState<{ agentId: string; toolCalls: ToolCall[]; sensitiveCalls: ToolCall[] } | null>(null);
 
   return {
@@ -49,6 +67,7 @@ export const useUIState = () => {
     showTerminal, setShowTerminal,
     pendingPlan, setPendingPlan,
     pendingStrategyPlan, setPendingStrategyPlan,
+    strategyPlanItems, setStrategyPlanItems,
     pendingDryRun, setPendingDryRun,
     pendingApproval, setPendingApproval,
   };

@@ -30,7 +30,6 @@ import { useOrchestrationEngine } from './hooks/useOrchestrationEngine';
 import { generateId } from './utils/helpers';
 import { useProjectState } from './hooks/useProjectState';
 import ExecutionPlanModal from './components/ExecutionPlanModal';
-import { StrategyPlanModal } from './components/StrategyPlanModal';
 import { DryRunModal } from './components/DryRunModal';
 import { useAutoMemory } from './hooks/useAutoMemory';
 import { orchestrationBus } from './hooks/useOrchestrationEngine';
@@ -161,6 +160,7 @@ const App: React.FC = () => {
         showTerminal, setShowTerminal,
         pendingPlan, setPendingPlan,
         pendingStrategyPlan, setPendingStrategyPlan,
+        strategyPlanItems, setStrategyPlanItems,
         pendingDryRun, setPendingDryRun,
         pendingApproval, setPendingApproval,
     } = useUIState();
@@ -215,7 +215,14 @@ const App: React.FC = () => {
     }, [activeAgentId]);
 
     // SSE broker — callbacks como refs estáveis, sem dependências que mudam
-    const respondToApprovalRef = useRef<((id: string, approved: boolean) => void) | null>(null);
+    const respondToApprovalRef = useRef<((id: string, approved: boolean, payload?: any) => void) | null>(null);
+
+    const syncAgentGeneratingState = useCallback((agentId: string | null | undefined, value: boolean) => {
+        if (!agentId) return;
+        setAgentGenerating(agentId, value, null, agentsRef.current.find(a => a.id === agentId)?.activeSessionId ?? null);
+        isGeneratingRef.current = value;
+    }, [setAgentGenerating]);
+
     const sseHandlersRef = useRef({
         addNotification,
         setPendingPlan,
@@ -241,9 +248,42 @@ const App: React.FC = () => {
             if (event.type === 'agent_start') {
                 sseHandlersRef.current.addLog({ id: `${ts}`, timestamp: ts, type: 'info', method: 'AGENT_START', model: event.agentName, content: { agentId: event.agentId, model: event.model } });
                 sseHandlersRef.current.setRunningAgents?.((prev: Set<string>) => new Set([...prev, event.agentId]));
+                syncAgentGeneratingState(event.agentId, true);
+            } else if (event.type === 'chunk') {
+                const targetAgentId = event.agentId;
+                if (targetAgentId) {
+                    syncAgentGeneratingState(targetAgentId, true);
+                    setAgents(prev => {
+                        const idx = prev.findIndex((a: any) => a.id === targetAgentId);
+                        if (idx === -1) return prev;
+                        const next = [...prev];
+                        const agentCopy = { ...next[idx] } as any;
+                        const history = Array.isArray(agentCopy.history) ? [...agentCopy.history] : [];
+                        const last = history[history.length - 1];
+                        if (last?.role === 'assistant' && last?.meta?.streaming) {
+                            history[history.length - 1] = {
+                                ...last,
+                                content: `${String(last.content ?? '')}${String(event.content ?? '')}`,
+                                timestamp: ts,
+                            };
+                        } else {
+                            history.push({
+                                role: 'assistant',
+                                content: String(event.content ?? ''),
+                                timestamp: ts,
+                                meta: { streaming: true },
+                            });
+                        }
+                        agentCopy.history = history;
+                        next[idx] = agentCopy;
+                        agentsRef.current = next;
+                        return next;
+                    });
+                }
             } else if (event.type === 'agent_done') {
                 sseHandlersRef.current.addLog({ id: `${ts}`, timestamp: ts, type: 'response', method: 'AGENT_DONE', model: event.agentName, content: { iterations: event.iterations, toolSummary: event.toolSummary }, durationMs: event.durationMs });
                 sseHandlersRef.current.setRunningAgents?.((prev: Set<string>) => { const s = new Set(prev); s.delete(event.agentId); return s; });
+                syncAgentGeneratingState(event.agentId, false);
                 // Reload canonical history from sessionStore only after agent fully completes
                 // (not on session_updated which fires mid-stream and would truncate bubbles)
                 const doneAgent = agentsRef.current.find((a: any) => a.id === event.agentId);
@@ -257,11 +297,18 @@ const App: React.FC = () => {
                             if (idx === -1) return prev;
                             const next = [...prev];
                             const agentCopy = { ...next[idx] };
-                            // Don't restore history if user cleared it — respect local empty state
-                            const serverMessages = session.messages || [];
-                            const localMessages = agentCopy.history || [];
+                            const serverMessages = Array.isArray(session.messages) ? session.messages : [];
+                            const localMessages = Array.isArray(agentCopy.history) ? agentCopy.history : [];
+                            const normalizedLocalMessages = localMessages.map((m: any) => (m?.meta?.streaming ? { ...m, meta: { ...(m.meta || {}), streaming: false } } : m));
                             if (localMessages.length === 0 && serverMessages.length > 0) {
-                                // Local was cleared — don't restore old server history
+                                return prev;
+                            }
+                            const localLast = normalizedLocalMessages[normalizedLocalMessages.length - 1];
+                            const serverLast = serverMessages[serverMessages.length - 1];
+                            const sameLast = localLast && serverLast
+                                && localLast.role === serverLast.role
+                                && String(localLast.content ?? '') === String(serverLast.content ?? '');
+                            if (sameLast && normalizedLocalMessages.length === serverMessages.length) {
                                 return prev;
                             }
                             agentCopy.history = serverMessages;
@@ -424,12 +471,34 @@ const App: React.FC = () => {
                 const summary = `injected ${count} memories`;
                 sseHandlersRef.current.addLog({ id: `${ts}`, timestamp: ts, type: 'info', method: 'MEMORY_INJECTION', model: event.agentId, content: event, summary });
             } else if (event.type === 'session_updated') {
-                const refreshesActiveSessionNote = () => {
-                    const currentAgent = agentsRef.current.find((a: any) => a.id === activeAgentIdRef.current);
-                    return Boolean(currentAgent?.activeSessionId && event.sessionId === currentAgent.activeSessionId);
-                };
-                if (refreshesActiveSessionNote()) {
+                const currentAgent = agentsRef.current.find((a: any) => a.id === activeAgentIdRef.current);
+                const refreshesActiveSession = Boolean(currentAgent?.activeSessionId && event.sessionId === currentAgent.activeSessionId);
+                if (refreshesActiveSession) {
                     setSessionNoteRemoteRefreshKey(prev => prev + 1);
+                    if (username && event.sessionId && event.sessionId !== 'default' && String(event.sessionId).length > 8) {
+                        ServerChat.loadSession(event.sessionId, username).then(session => {
+                            if (!session) return;
+                            setAgents(prev => {
+                                const idx = prev.findIndex((a: any) => a.id === (event.agentId || activeAgentIdRef.current));
+                                if (idx === -1) return prev;
+                                const next = [...prev];
+                                const agentCopy = { ...next[idx] } as any;
+                                const localMessages = Array.isArray(agentCopy.history) ? agentCopy.history : [];
+                                const hasStreamingAssistant = localMessages.some((m: any) => m?.role === 'assistant' && m?.meta?.streaming);
+                                if (hasStreamingAssistant) return prev;
+                                const serverMessages = Array.isArray(session.messages) ? session.messages : [];
+                                agentCopy.history = serverMessages;
+                                next[idx] = agentCopy;
+                                agentsRef.current = next;
+                                return next;
+                            });
+                        }).catch(() => {});
+                    }
+                }
+            } else if (event.type === 'approval:decision') {
+                const agentId = event.agentId || null;
+                if (agentId) {
+                    syncAgentGeneratingState(agentId, false);
                 }
             } else if (event.type === 'write_file_dry_run') {
                 sseHandlersRef.current.setPendingDryRun({
@@ -481,29 +550,69 @@ const App: React.FC = () => {
             });
         }, []),
         onApprovalRequired: useCallback((data: any) => {
+            const strategyPlan = {
+                title: data.title ?? '',
+                objective: data.objective ?? '',
+                approach: data.approach ?? '',
+                risks: data.risks ?? '',
+                checklist: Array.isArray(data.checklist) ? data.checklist : [],
+            };
+            const requestId = String(data.requestId || '').trim();
+            const itemId = String(requestId || `strategy-plan:${String(data.agentId || '').trim() || 'unknown'}:${Date.now()}`);
+            const now = new Date().toISOString();
+            const approvePlan = (revisedPlan?: any) => {
+                const approvedPlan = revisedPlan && typeof revisedPlan === 'object' ? revisedPlan : strategyPlan;
+                const updatedAt = new Date().toISOString();
+                setStrategyPlanItems((prev: any[]) => (Array.isArray(prev) ? prev.map((item: any) => (
+                    String(item?.id || '').trim() === itemId
+                        ? { ...item, plan: approvedPlan, status: 'in_progress', updatedAt }
+                        : item
+                )) : prev));
+                syncAgentGeneratingState(data.agentId, true);
+                respondToApprovalRef.current?.(data.requestId, true, approvedPlan);
+                setPendingStrategyPlan((prev: any) => String(prev?.requestId || '').trim() === requestId ? null : prev);
+            };
+            const rejectPlan = () => {
+                setStrategyPlanItems((prev: any[]) => (Array.isArray(prev)
+                    ? prev.filter((item: any) => String(item?.id || '').trim() !== itemId)
+                    : prev));
+                syncAgentGeneratingState(data.agentId, false);
+                respondToApprovalRef.current?.(data.requestId, false);
+                setPendingStrategyPlan((prev: any) => String(prev?.requestId || '').trim() === requestId ? null : prev);
+            };
+            setStrategyPlanItems((prev: any[]) => {
+                const next = Array.isArray(prev) ? [...prev] : [];
+                const index = next.findIndex((item: any) => String(item?.id || '').trim() === itemId);
+                const baseItem = {
+                    id: itemId,
+                    agentId: String(data.agentId || '').trim(),
+                    requestId: requestId || undefined,
+                    source: 'strategyPlanTracking',
+                    status: 'open',
+                    plan: strategyPlan,
+                    updatedAt: now,
+                    onApprove: approvePlan,
+                    onReject: rejectPlan,
+                };
+                if (index >= 0) {
+                    next[index] = { ...next[index], ...baseItem, createdAt: next[index]?.createdAt || now };
+                    return next;
+                }
+                next.unshift({ ...baseItem, createdAt: now });
+                return next;
+            });
             setPendingStrategyPlan({
                 agentId: data.agentId,
                 requestId: data.requestId,
-                plan: {
-                    title: data.title ?? '',
-                    objective: data.objective ?? '',
-                    approach: data.approach ?? '',
-                    risks: data.risks ?? '',
-                    checklist: Array.isArray(data.checklist) ? data.checklist : [],
-                },
-                onApprove: () => {
-                    respondToApprovalRef.current?.(data.requestId, true);
-                    setPendingStrategyPlan(null);
-                },
-                onReject: () => {
-                    respondToApprovalRef.current?.(data.requestId, false);
-                    setPendingStrategyPlan(null);
-                },
+                plan: strategyPlan,
+                onApprove: approvePlan,
+                onReject: rejectPlan,
             } as any);
-        }, [setPendingStrategyPlan]),
+        }, [setPendingStrategyPlan, setStrategyPlanItems, syncAgentGeneratingState]),
     });
     // Injetar respondToApproval no ref após o hook ser criado
     useEffect(() => { respondToApprovalRef.current = _respondToApproval; }, [_respondToApproval]);
+
 
     // Cleanup de refs no unmount — evita memory leak
     useEffect(() => {
@@ -990,6 +1099,18 @@ const App: React.FC = () => {
           syncStatus={syncStatus}
           isGenerating={!!runStateByAgent[activeAgentId]?.isGenerating}
           pendingApproval={pendingApproval}
+          strategyPlanItems={strategyPlanItems}
+          pendingStrategyPlan={pendingStrategyPlan}
+          onMarkStrategyPlanCompleted={(planId: string) => {
+            const targetId = String(planId || '').trim();
+            if (!targetId) return;
+            const updatedAt = new Date().toISOString();
+            setStrategyPlanItems((prev: any[]) => (Array.isArray(prev)
+              ? prev.map((item: any) => String(item?.id || '').trim() === targetId
+                ? { ...item, status: 'completed', updatedAt }
+                : item)
+              : prev));
+          }}
           sessionNoteRemoteRefreshKey={sessionNoteRemoteRefreshKey}
           projects={projects}
           activeProjectId={activeProjectId}
@@ -1015,14 +1136,6 @@ const App: React.FC = () => {
                 agentName={agents.find(a => a.id === pendingDryRun.payload.agentId)?.name ?? 'Agent'}
                 onConfirm={() => { pendingDryRun.resolve(true); setPendingDryRun(null); }}
                 onCancel={() => { pendingDryRun.resolve(false); setPendingDryRun(null); }}
-            />
-        )}
-        {pendingStrategyPlan && (
-            <StrategyPlanModal
-                plan={pendingStrategyPlan.plan}
-                agentName={agentsRef.current.find(a => a.id === pendingStrategyPlan.agentId)?.name ?? 'Agent'}
-                onApprove={pendingStrategyPlan.onApprove}
-                onReject={pendingStrategyPlan.onReject}
             />
         )}
 
