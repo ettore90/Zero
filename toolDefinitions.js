@@ -172,9 +172,77 @@ export const SYSTEM_TOOLS = [
           objective: { type: 'string', description: 'What the plan aims to achieve' },
           approach: { type: 'string', description: 'How the plan will be executed' },
           risks: { type: 'string', description: 'Optional risks or concerns' },
-          checklist: { type: 'array', items: { type: 'string' }, description: 'Optional checklist items' },
+          checklist: {
+            type: 'array',
+            description: 'Optional checklist items. Accepts legacy strings or structured items with comments.',
+            items: {
+              anyOf: [
+                { type: 'string' },
+                {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    text: { type: 'string' },
+                    done: { type: 'boolean' },
+                    comments: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          author: { type: 'string' },
+                          role: { type: 'string', enum: ['agent', 'user'] },
+                          text: { type: 'string' },
+                          createdAt: { type: 'number' },
+                        },
+                        required: ['text'],
+                      },
+                    },
+                  },
+                  required: ['text'],
+                },
+              ],
+            },
+          },
         },
         required: ['title', 'objective', 'approach'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    group: 'Orchestration',
+    function: {
+      name: 'complete_plan_checklist_item',
+      callableBy: ['workflow', 'llm', 'agent'],
+      description: 'Mark a specific checklist item in the active in-progress plan as completed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          requestId: { type: 'string', description: 'Approval request id of the plan' },
+          itemId: { type: 'string', description: 'Checklist item id' },
+          itemText: { type: 'string', description: 'Fallback matcher by checklist item text when itemId is unavailable' },
+        },
+        required: ['requestId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    group: 'Orchestration',
+    function: {
+      name: 'comment_plan_checklist_item',
+      callableBy: ['workflow', 'llm', 'agent'],
+      description: 'Add a progress comment to a specific checklist item in the active in-progress plan.',
+      parameters: {
+        type: 'object',
+        properties: {
+          requestId: { type: 'string', description: 'Approval request id of the plan' },
+          itemId: { type: 'string', description: 'Checklist item id' },
+          itemText: { type: 'string', description: 'Fallback matcher by checklist item text when itemId is unavailable' },
+          text: { type: 'string', description: 'Comment text to append to the checklist item' },
+        },
+        required: ['requestId', 'text'],
       },
     },
   },

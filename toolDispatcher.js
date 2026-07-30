@@ -2774,8 +2774,38 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
     // =========================================================================
     // GRUPO C — request_plan_approval (daemon: auto-aprova + salva como alerta)
     // =========================================================================
+
+    if (toolName === 'complete_plan_checklist_item') {
+        const targetRecord = (args.requestId && pendingApprovals.get(args.requestId))
+            || findLatestInProgressPlanForAgent({ username, agentId, sessionId: ctx?.sessionId || null });
+        if (!targetRecord) return { error: 'No active in-progress plan found' };
+        const updated = markPlanItemCompleted(targetRecord, { itemId: args.itemId, itemText: args.itemText });
+        if (!updated.ok) return { error: updated.error || 'Checklist item not found' };
+        pendingApprovals.set(updated.record.requestId, updated.record);
+        broadcastPlanUpdate(updated.record);
+        return { success: true, requestId: updated.record.requestId, item: updated.item, plan: updated.record.plan };
+    }
+
+    if (toolName === 'comment_plan_checklist_item') {
+        const targetRecord = (args.requestId && pendingApprovals.get(args.requestId))
+            || findLatestInProgressPlanForAgent({ username, agentId, sessionId: ctx?.sessionId || null });
+        if (!targetRecord) return { error: 'No active in-progress plan found' };
+        const updated = appendCommentToPlanItem(targetRecord, {
+            itemId: args.itemId,
+            itemText: args.itemText,
+            text: args.text,
+            author: agentId,
+            role: 'agent',
+        });
+        if (!updated.ok) return { error: updated.error || 'Checklist item not found' };
+        pendingApprovals.set(updated.record.requestId, updated.record);
+        broadcastPlanUpdate(updated.record);
+        return { success: true, requestId: updated.record.requestId, item: updated.item, comment: updated.comment, plan: updated.record.plan };
+    }
+
     if (toolName === 'request_plan_approval') {
         console.warn(`[Tool] request_plan_approval (daemon auto-approve): ${args.title}`);
+        const normalizedPlan = normalizePlanForStorage(args);
         const state = ctx.readState(username) || {};
         const pending = state.pendingAlerts || [];
         pending.push({
@@ -2789,7 +2819,7 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         });
         state.pendingAlerts = pending;
         ctx.writeState(username, state);
-        return { approved: true, auto: true, reason: 'daemon_mode' };
+        return { approved: true, auto: true, reason: 'daemon_mode', plan: normalizedPlan };
     }
 
     // =========================================================================

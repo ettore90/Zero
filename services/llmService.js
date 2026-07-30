@@ -13,6 +13,7 @@ import { withExclusiveFileLock, atomicWriteJson } from '../utils/fileLock.js';
 import { readFileSafe, writeFileSafe } from '../utils/fs.js';
 import { escapeShellArg, splitCommand } from '../utils/ssh.js';
 import { sessionStore, pendingApprovals, approvalDecisions, approvalDeliveryQueue, runningAgentControllers, approvalFlushInFlight, globalCircuitBreaker } from './runtime.js';
+import { normalizePlanForStorage } from './planState.js';
 import { broadcastToUser } from './streamBroker.js';
 import { createSubagentAudit, appendSubagentAuditLog, finalizeSubagentAudit, serializeJson } from './subagentAuditService.js';
 import http2 from 'http2';
@@ -2391,13 +2392,15 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
 
         if (toolName === 'request_plan_approval') {
           const requestId = `approval-${Date.now()}`;
+          const normalizedPlan = normalizePlanForStorage({ ...toolArgs });
           const approvalRecord = {
             requestId,
             username,
             agentId,
             sessionId: sessionId || null,
             tool_call_id: tc.id,
-            payload: { ...toolArgs },
+            payload: normalizedPlan,
+            plan: normalizedPlan,
             status: 'pending',
             createdAt: Date.now(),
             updatedAt: Date.now(),
@@ -2410,7 +2413,7 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
             sessionId: sessionId || null,
             tool_call_id: tc.id,
             status: 'pending',
-            ...toolArgs,
+            ...normalizedPlan,
           });
 
           toolResults.push({

@@ -3,6 +3,7 @@ import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { pendingApprovals, approvalDecisions, approvalDeliveryQueue, runningAgentControllers } from '../services/runtime.js';
 import { broadcastToUser } from '../services/streamBroker.js';
 import { flushApprovalContinuationIfIdle } from '../services/llmService.js';
+import { normalizePlanForStorage, appendCommentToPlanItem, markPlanItemCompleted, broadcastPlanUpdate, isPlausiblePlanPayload, validateCommentInput } from '../services/planState.js';
 
 const router = Router();
 
@@ -20,11 +21,17 @@ router.post('/approval/respond', checkLocalAccess, (req, res) => {
 
   const decidedAt = Date.now();
   const status = approved === true ? 'approved' : 'rejected';
-  const hasPayloadOverride = payload && typeof payload === 'object';
+  const hasPayloadOverride = payload && typeof payload === 'object' && !Array.isArray(payload);
+  if (hasPayloadOverride && !isPlausiblePlanPayload(payload)) {
+    return res.status(400).json({ error: 'Invalid approval payload shape' });
+  }
+
+  const nextPlanPayload = hasPayloadOverride ? payload : (pending.plan ?? pending.payload);
+  const normalizedPlan = normalizePlanForStorage(nextPlanPayload);
   const updated = {
     ...pending,
-    payload: hasPayloadOverride ? payload : pending.payload,
-    plan: hasPayloadOverride ? payload : pending.plan,
+    payload: normalizedPlan,
+    plan: normalizedPlan,
     status,
     updatedAt: decidedAt,
     decision: {

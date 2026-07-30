@@ -29,10 +29,11 @@ interface ChatInterfaceProps {
   pendingStrategyPlan?: {
     agentId: string;
     requestId?: string;
-    plan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
+    plan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] };
     signal?: AbortSignal;
     onApprove: () => void;
     onReject: () => void;
+    onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
   } | null;
   onApproveTool: () => void;
   onDenyTool: () => void;
@@ -996,6 +997,13 @@ const approvalItems = React.useMemo(() => {
           : undefined,
         onMarkCompleted: item?.status === 'in_progress' && typeof onMarkStrategyPlanCompleted === 'function'
           ? (() => onMarkStrategyPlanCompleted(trackedId))
+          : undefined,
+        onCommentItem: item?.status === 'in_progress'
+          ? (typeof item?.onCommentItem === 'function'
+              ? item.onCommentItem
+              : livePending && typeof pendingStrategyPlan?.onCommentItem === 'function'
+                ? pendingStrategyPlan.onCommentItem
+                : undefined)
           : undefined,
         unread: !seenApprovalIds.includes(trackedId) && item?.status === 'open',
       } as any);

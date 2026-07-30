@@ -217,6 +217,29 @@ const App: React.FC = () => {
     // SSE broker — callbacks como refs estáveis, sem dependências que mudam
     const respondToApprovalRef = useRef<((id: string, approved: boolean, payload?: any) => void) | null>(null);
 
+    const postApprovalItemComment = useCallback(async (requestId: string, itemId: string | undefined, itemText: string | undefined, text: string) => {
+        await fetch(`${LOCAL_BASE}/api/approval/comment-item`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ requestId, itemId, itemText, text, username }),
+        });
+    }, [username]);
+
+    const mergePlanIntoTrackedItems = useCallback((requestId: string, plan: any, statusOverride?: 'open' | 'in_progress' | 'completed') => {
+        const normalizedRequestId = String(requestId || '').trim();
+        if (!normalizedRequestId) return;
+        const updatedAt = new Date().toISOString();
+        setStrategyPlanItems((prev: any[]) => Array.isArray(prev) ? prev.map((item: any) => (
+            String(item?.requestId || '').trim() === normalizedRequestId || String(item?.id || '').trim() === normalizedRequestId
+                ? { ...item, plan: plan && typeof plan === 'object' ? plan : item.plan, updatedAt, ...(statusOverride ? { status: statusOverride } : {}) }
+                : item
+        )) : prev);
+        setPendingStrategyPlan((prev: any) => String(prev?.requestId || '').trim() === normalizedRequestId
+            ? { ...prev, plan: plan && typeof plan === 'object' ? plan : prev?.plan }
+            : prev);
+    }, [setPendingStrategyPlan, setStrategyPlanItems]);
+
+
     const syncAgentGeneratingState = useCallback((agentId: string | null | undefined, value: boolean) => {
         if (!agentId) return;
         setAgentGenerating(agentId, value, null, agentsRef.current.find(a => a.id === agentId)?.activeSessionId ?? null);
@@ -500,6 +523,13 @@ const App: React.FC = () => {
                 if (agentId) {
                     syncAgentGeneratingState(agentId, false);
                 }
+                if (event.requestId && event.plan) {
+                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.status === 'approved' ? 'in_progress' : undefined);
+                }
+            } else if (event.type === 'approval:plan_updated') {
+                if (event.requestId && event.plan) {
+                    mergePlanIntoTrackedItems(event.requestId, event.plan);
+                }
             } else if (event.type === 'write_file_dry_run') {
                 sseHandlersRef.current.setPendingDryRun({
                     payload: {
@@ -558,6 +588,10 @@ const App: React.FC = () => {
                 checklist: Array.isArray(data.checklist) ? data.checklist : [],
             };
             const requestId = String(data.requestId || '').trim();
+            const commentOnItem = async (itemId: string | undefined, itemText: string | undefined, text: string) => {
+                if (!requestId || !String(text || '').trim()) return;
+                await postApprovalItemComment(requestId, itemId, itemText, text);
+            };
             const itemId = String(requestId || `strategy-plan:${String(data.agentId || '').trim() || 'unknown'}:${Date.now()}`);
             const now = new Date().toISOString();
             const approvePlan = (revisedPlan?: any) => {
@@ -593,6 +627,7 @@ const App: React.FC = () => {
                     updatedAt: now,
                     onApprove: approvePlan,
                     onReject: rejectPlan,
+                    onCommentItem: commentOnItem,
                 };
                 if (index >= 0) {
                     next[index] = { ...next[index], ...baseItem, createdAt: next[index]?.createdAt || now };
@@ -607,6 +642,7 @@ const App: React.FC = () => {
                 plan: strategyPlan,
                 onApprove: approvePlan,
                 onReject: rejectPlan,
+                onCommentItem: commentOnItem,
             } as any);
         }, [setPendingStrategyPlan, setStrategyPlanItems, syncAgentGeneratingState]),
     });

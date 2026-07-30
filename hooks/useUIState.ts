@@ -15,11 +15,12 @@ export interface StrategyPlanTrackingItem {
   requestId?: string;
   source: 'strategyPlanTracking';
   status: StrategyPlanTrackingStatus;
-  plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
+  plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] };
   createdAt: string;
   updatedAt: string;
   onApprove?: (revisedPlan?: any) => void;
   onReject?: () => void;
+  onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
 }
 
 
@@ -42,10 +43,11 @@ export const useUIState = () => {
   const [pendingStrategyPlan, setPendingStrategyPlan] = useState<{
     agentId: string;
     requestId?: string;
-    plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
+    plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] };
     signal?: AbortSignal;
-    onApprove: (revisedPlan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] }) => void;
+    onApprove: (revisedPlan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] }) => void;
     onReject: () => void;
+    onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
   } | null>(null);
   const [pendingDryRun, setPendingDryRun] = useState<{ payload: DryRunPayload; resolve: (v: boolean) => void } | null>(null);
   const [strategyPlanItems, setStrategyPlanItems] = useState<StrategyPlanTrackingItem[]>([]);

@@ -274,10 +274,11 @@ export interface CodeCanvasProps {
     toolCalls?: ToolCall[];
     sensitiveCalls?: ToolCall[];
     source?: string;
-    plan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
+    plan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] };
     onApprove?: (revisedPlan?: any) => void;
     onReject?: () => void;
     onMarkCompleted?: () => void;
+    onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
     status?: 'open' | 'in_progress' | 'completed';
   } | null;
   isApprovalsSectionOpen?: boolean;
@@ -372,6 +373,8 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
                 hideRejectButton={!canReject || isReadOnlyCompleted}
                 hidePrimaryButton={isReadOnlyCompleted}
                 reviewSummaryText={selectedApproval?.status === 'open' ? 'Awaiting decision.' : selectedApproval?.status === 'in_progress' ? 'Approved and currently tracked as in progress.' : 'This plan has been marked as completed.'}
+                onCommentItem={selectedApproval?.status === 'in_progress' ? selectedApproval.onCommentItem : undefined}
+                readOnly={selectedApproval?.status === 'completed'}
               />
             </div>
           </div>
