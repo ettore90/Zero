@@ -21,6 +21,8 @@ import { getCurrentPromptVersion, getOrBootstrapPromptDocumentByAgent, listPromp
 import { rememberMemory, recallMemories, updateMemoryRecord, deleteMemories } from './services/sqliteMemoryTools.js';
 import { editSessionNoteLocalized, normalizeSessionNote, hasSessionNoteTarget, readSessionNoteFragment } from './services/sessionNoteService.js';
 import { broadcastToUser } from './services/streamBroker.js';
+import { pendingApprovals } from './services/runtime.js';
+import { appendCommentToPlanItem, broadcastPlanUpdate, findLatestInProgressPlanForAgent, markPlanItemCompleted, normalizePlanForStorage } from './services/planState.js';
 
 const ISOLATED_SUBAGENT_MAX_ITERATIONS = 20;
 const ISOLATED_SUBAGENT_TOOL_HEAVY_DEFAULT_ITERATIONS = 20;
@@ -2776,20 +2778,26 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
     // =========================================================================
 
     if (toolName === 'complete_plan_checklist_item') {
-        const targetRecord = (args.requestId && pendingApprovals.get(args.requestId))
-            || findLatestInProgressPlanForAgent({ username, agentId, sessionId: ctx?.sessionId || null });
-        if (!targetRecord) return { error: 'No active in-progress plan found' };
+        const hasExplicitPlanIdentifier = Boolean(args.planKey || args.requestId);
+        const targetRecord = (args.planKey && pendingApprovals.get(args.planKey))
+            || (args.requestId && pendingApprovals.get(args.requestId))
+            || (!hasExplicitPlanIdentifier ? findLatestInProgressPlanForAgent({ username, agentId, sessionId: ctx?.sessionId || null }) : null);
+        if (!targetRecord) return { error: hasExplicitPlanIdentifier ? 'No matching plan found' : 'No active in-progress plan found' };
+        if (targetRecord.status !== 'in_progress') return { error: 'Plan is not in progress' };
         const updated = markPlanItemCompleted(targetRecord, { itemId: args.itemId, itemText: args.itemText });
         if (!updated.ok) return { error: updated.error || 'Checklist item not found' };
         pendingApprovals.set(updated.record.requestId, updated.record);
         broadcastPlanUpdate(updated.record);
-        return { success: true, requestId: updated.record.requestId, item: updated.item, plan: updated.record.plan };
+        return { success: true, planKey: updated.record.requestId, item: updated.item };
     }
 
     if (toolName === 'comment_plan_checklist_item') {
-        const targetRecord = (args.requestId && pendingApprovals.get(args.requestId))
-            || findLatestInProgressPlanForAgent({ username, agentId, sessionId: ctx?.sessionId || null });
-        if (!targetRecord) return { error: 'No active in-progress plan found' };
+        const hasExplicitPlanIdentifier = Boolean(args.planKey || args.requestId);
+        const targetRecord = (args.planKey && pendingApprovals.get(args.planKey))
+            || (args.requestId && pendingApprovals.get(args.requestId))
+            || (!hasExplicitPlanIdentifier ? findLatestInProgressPlanForAgent({ username, agentId, sessionId: ctx?.sessionId || null }) : null);
+        if (!targetRecord) return { error: hasExplicitPlanIdentifier ? 'No matching plan found' : 'No active in-progress plan found' };
+        if (targetRecord.status !== 'in_progress') return { error: 'Plan is not in progress' };
         const updated = appendCommentToPlanItem(targetRecord, {
             itemId: args.itemId,
             itemText: args.itemText,
@@ -2800,7 +2808,7 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         if (!updated.ok) return { error: updated.error || 'Checklist item not found' };
         pendingApprovals.set(updated.record.requestId, updated.record);
         broadcastPlanUpdate(updated.record);
-        return { success: true, requestId: updated.record.requestId, item: updated.item, comment: updated.comment, plan: updated.record.plan };
+        return { success: true, planKey: updated.record.requestId, item: updated.item };
     }
 
     if (toolName === 'request_plan_approval') {

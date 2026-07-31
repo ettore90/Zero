@@ -13,6 +13,8 @@ export interface StrategyPlanTrackingItem {
   id: string;
   agentId: string;
   requestId?: string;
+  planKey?: string;
+  approvalKey?: string;
   source: 'strategyPlanTracking';
   status: StrategyPlanTrackingStatus;
   plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] };
@@ -43,6 +45,8 @@ export const useUIState = () => {
   const [pendingStrategyPlan, setPendingStrategyPlan] = useState<{
     agentId: string;
     requestId?: string;
+    planKey?: string;
+  approvalKey?: string;
     plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] };
     signal?: AbortSignal;
     onApprove: (revisedPlan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] }) => void;

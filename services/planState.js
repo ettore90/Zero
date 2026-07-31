@@ -62,22 +62,45 @@ export function isPlausiblePlanPayload(plan) {
 }
 
 export function validateCommentInput(text) {
-  const normalized = clampTrimmedString(text, MAX_COMMENT_TEXT_LENGTH);
+  if (typeof text !== 'string') return { ok: false, error: 'Comment text required' };
+  const normalized = text.trim();
   if (!normalized) return { ok: false, error: 'Comment text required' };
+  if (normalized.length > MAX_COMMENT_TEXT_LENGTH) {
+    return { ok: false, error: `Comment text too long (max ${MAX_COMMENT_TEXT_LENGTH} characters)` };
+  }
   return { ok: true, text: normalized };
 }
 
 function matchChecklistItem(item, { itemId, itemText }) {
-  if (isNonEmptyString(itemId) && isNonEmptyString(item?.id) && item.id.trim() === itemId.trim()) return true;
-  if (itemText && typeof item?.text === 'string' && item.text.trim() === String(itemText).trim()) return true;
+  const normalizedItemId = isNonEmptyString(itemId) ? itemId.trim() : '';
+  const normalizedItemText = isNonEmptyString(itemText) ? itemText.trim() : '';
+  const itemHasId = isNonEmptyString(item?.id);
+  const itemHasText = typeof item?.text === 'string' && item.text.trim().length > 0;
+
+  if (normalizedItemId) {
+    if (!itemHasId) return false;
+    return item.id.trim() === normalizedItemId;
+  }
+
+  if (normalizedItemText && itemHasText) return item.text.trim() === normalizedItemText;
   return false;
+}
+
+function resolveChecklistItemIndex(checklist, { itemId, itemText }) {
+  const matches = checklist
+    .map((item, index) => (matchChecklistItem(item, { itemId, itemText }) ? index : -1))
+    .filter((index) => index >= 0);
+  if (matches.length === 0) return { ok: false, error: 'Checklist item not found' };
+  if (matches.length > 1) return { ok: false, error: 'Ambiguous checklist item match' };
+  return { ok: true, index: matches[0] };
 }
 
 export function markPlanItemCompleted(record, { itemId, itemText }) {
   const normalizedPlan = normalizePlanForStorage(record?.plan ?? record?.payload);
   const checklist = Array.isArray(normalizedPlan?.checklist) ? [...normalizedPlan.checklist] : [];
-  const index = checklist.findIndex((item) => matchChecklistItem(item, { itemId, itemText }));
-  if (index < 0) return { ok: false, error: 'Checklist item not found' };
+  const resolved = resolveChecklistItemIndex(checklist, { itemId, itemText });
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+  const index = resolved.index;
   const updatedItem = { ...checklist[index], done: true };
   checklist[index] = updatedItem;
   const updatedPlan = { ...normalizedPlan, checklist };
@@ -107,8 +130,9 @@ export function appendCommentToPlanItem(record, { itemId, itemText, text, author
   if (!commentValidation.ok) return { ok: false, error: commentValidation.error };
   const normalizedPlan = normalizePlanForStorage(record?.plan ?? record?.payload);
   const checklist = Array.isArray(normalizedPlan?.checklist) ? [...normalizedPlan.checklist] : [];
-  const index = checklist.findIndex((item) => matchChecklistItem(item, { itemId, itemText }));
-  if (index < 0) return { ok: false, error: 'Checklist item not found' };
+  const resolved = resolveChecklistItemIndex(checklist, { itemId, itemText });
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+  const index = resolved.index;
   const comment = {
     id: makeId('comment'),
     author: typeof author === 'string' && author.trim() ? author.trim() : undefined,
@@ -147,7 +171,7 @@ export function findLatestInProgressPlanForAgent({ username, agentId, sessionId 
   for (const record of pendingApprovals.values()) {
     if (!record || record.username !== username || record.agentId !== agentId) continue;
     if (sessionId && record.sessionId !== sessionId) continue;
-    if (record.status !== 'approved' && record.status !== 'in_progress') continue;
+    if (record.status !== 'in_progress') continue;
     if (!best || Number(record.updatedAt || 0) > Number(best.updatedAt || 0)) best = record;
   }
   return best;

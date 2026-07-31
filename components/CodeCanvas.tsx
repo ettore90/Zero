@@ -345,6 +345,7 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
       const canReject = selectedApproval?.status === 'open' && typeof selectedApproval.onReject === 'function';
       const isReadOnlyCompleted = selectedApproval?.status === 'completed';
       const canMarkCompleted = selectedApproval?.status === 'in_progress' && typeof selectedApproval.onMarkCompleted === 'function';
+      const canComment = selectedApproval?.status === 'in_progress' && typeof selectedApproval.onCommentItem === 'function';
       return (
         <CanvasViewport className={isDarkTheme ? "bg-[#1e1e1e]" : "bg-white"}>
           <div className={`flex h-full min-h-0 min-w-0 flex-col ${isDarkTheme ? "bg-[#1e1e1e] text-slate-200" : "bg-white text-slate-700"}`}>
@@ -373,7 +374,7 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
                 hideRejectButton={!canReject || isReadOnlyCompleted}
                 hidePrimaryButton={isReadOnlyCompleted}
                 reviewSummaryText={selectedApproval?.status === 'open' ? 'Awaiting decision.' : selectedApproval?.status === 'in_progress' ? 'Approved and currently tracked as in progress.' : 'This plan has been marked as completed.'}
-                onCommentItem={selectedApproval?.status === 'in_progress' ? selectedApproval.onCommentItem : undefined}
+                onCommentItem={canComment ? selectedApproval.onCommentItem : undefined}
                 readOnly={selectedApproval?.status === 'completed'}
               />
             </div>

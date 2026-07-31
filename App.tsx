@@ -225,18 +225,34 @@ const App: React.FC = () => {
         });
     }, [username]);
 
-    const mergePlanIntoTrackedItems = useCallback((requestId: string, plan: any, statusOverride?: 'open' | 'in_progress' | 'completed') => {
+    const mergePlanIntoTrackedItems = useCallback((requestId: string, plan: any, planKey?: string, statusOverride?: 'open' | 'in_progress' | 'completed') => {
         const normalizedRequestId = String(requestId || '').trim();
-        if (!normalizedRequestId) return;
+        const normalizedPlanKey = String(planKey || '').trim();
+        const normalizedApprovalKey = normalizedPlanKey || normalizedRequestId;
+        if (!normalizedRequestId && !normalizedPlanKey) return;
         const updatedAt = new Date().toISOString();
-        setStrategyPlanItems((prev: any[]) => Array.isArray(prev) ? prev.map((item: any) => (
-            String(item?.requestId || '').trim() === normalizedRequestId || String(item?.id || '').trim() === normalizedRequestId
-                ? { ...item, plan: plan && typeof plan === 'object' ? plan : item.plan, updatedAt, ...(statusOverride ? { status: statusOverride } : {}) }
-                : item
-        )) : prev);
-        setPendingStrategyPlan((prev: any) => String(prev?.requestId || '').trim() === normalizedRequestId
-            ? { ...prev, plan: plan && typeof plan === 'object' ? plan : prev?.plan }
-            : prev);
+        setStrategyPlanItems((prev: any[]) => Array.isArray(prev) ? prev.map((item: any) => {
+            const itemPlanKey = String(item?.planKey || '').trim();
+            const itemApprovalKey = String(item?.approvalKey || '').trim();
+            const matches = (normalizedPlanKey && itemPlanKey === normalizedPlanKey)
+                || String(item?.requestId || '').trim() === normalizedRequestId
+                || String(item?.id || '').trim() === normalizedRequestId
+                || (!normalizedPlanKey && itemApprovalKey === normalizedApprovalKey);
+            if (!matches) return item;
+            return { ...item, planKey: item?.planKey || normalizedPlanKey || normalizedApprovalKey, approvalKey: item?.approvalKey || normalizedApprovalKey, plan: plan && typeof plan === 'object' ? plan : item.plan, updatedAt, ...(statusOverride ? { status: statusOverride } : {}) };
+        }) : prev);
+        setPendingStrategyPlan((prev: any) => {
+            if (!prev) return prev;
+            const prevPlanKey = String(prev?.planKey || '').trim();
+            const prevApprovalKey = String(prev?.approvalKey || '').trim();
+            const matches = String(prev?.requestId || '').trim() === normalizedRequestId
+                || (normalizedPlanKey && prevPlanKey === normalizedPlanKey)
+                || (!normalizedPlanKey && prevApprovalKey === normalizedApprovalKey)
+                || (!normalizedPlanKey && !prevPlanKey && prevApprovalKey === normalizedApprovalKey);
+            return matches
+                ? { ...prev, planKey: prev?.planKey || normalizedPlanKey || normalizedApprovalKey, approvalKey: prev?.approvalKey || normalizedApprovalKey, plan: plan && typeof plan === 'object' ? plan : prev?.plan }
+                : prev;
+        });
     }, [setPendingStrategyPlan, setStrategyPlanItems]);
 
 
@@ -524,11 +540,11 @@ const App: React.FC = () => {
                     syncAgentGeneratingState(agentId, false);
                 }
                 if (event.requestId && event.plan) {
-                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.status === 'approved' ? 'in_progress' : undefined);
+                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined, event.status === 'approved' ? 'in_progress' : undefined);
                 }
             } else if (event.type === 'approval:plan_updated') {
                 if (event.requestId && event.plan) {
-                    mergePlanIntoTrackedItems(event.requestId, event.plan);
+                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined);
                 }
             } else if (event.type === 'write_file_dry_run') {
                 sseHandlersRef.current.setPendingDryRun({
@@ -589,9 +605,11 @@ const App: React.FC = () => {
             };
             const requestId = String(data.requestId || '').trim();
             const commentOnItem = async (itemId: string | undefined, itemText: string | undefined, text: string) => {
-                if (!requestId || !String(text || '').trim()) return;
-                await postApprovalItemComment(requestId, itemId, itemText, text);
+                const latestRequestId = String(data.requestId || '').trim();
+                if (!latestRequestId || !String(text || '').trim()) return;
+                await postApprovalItemComment(latestRequestId, itemId, itemText, text);
             };
+            const planKey = String(data.planKey || data.approvalKey || requestId || '').trim();
             const itemId = String(requestId || `strategy-plan:${String(data.agentId || '').trim() || 'unknown'}:${Date.now()}`);
             const now = new Date().toISOString();
             const approvePlan = (revisedPlan?: any) => {
@@ -599,7 +617,7 @@ const App: React.FC = () => {
                 const updatedAt = new Date().toISOString();
                 setStrategyPlanItems((prev: any[]) => (Array.isArray(prev) ? prev.map((item: any) => (
                     String(item?.id || '').trim() === itemId
-                        ? { ...item, plan: approvedPlan, status: 'in_progress', updatedAt }
+                        ? { ...item, planKey: item?.planKey || planKey, approvalKey: item?.approvalKey || planKey, plan: approvedPlan, status: 'in_progress', updatedAt }
                         : item
                 )) : prev));
                 syncAgentGeneratingState(data.agentId, true);
@@ -621,6 +639,8 @@ const App: React.FC = () => {
                     id: itemId,
                     agentId: String(data.agentId || '').trim(),
                     requestId: requestId || undefined,
+                    planKey,
+                    approvalKey: planKey,
                     source: 'strategyPlanTracking',
                     status: 'open',
                     plan: strategyPlan,
@@ -639,6 +659,8 @@ const App: React.FC = () => {
             setPendingStrategyPlan({
                 agentId: data.agentId,
                 requestId: data.requestId,
+                planKey,
+                approvalKey: planKey,
                 plan: strategyPlan,
                 onApprove: approvePlan,
                 onReject: rejectPlan,

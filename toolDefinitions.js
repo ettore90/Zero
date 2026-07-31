@@ -219,11 +219,11 @@ export const SYSTEM_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          requestId: { type: 'string', description: 'Approval request id of the plan' },
+          planKey: { type: 'string', description: 'Plan key of the plan' },
           itemId: { type: 'string', description: 'Checklist item id' },
           itemText: { type: 'string', description: 'Fallback matcher by checklist item text when itemId is unavailable' },
         },
-        required: ['requestId'],
+        required: ['planKey'],
       },
     },
   },
@@ -237,12 +237,12 @@ export const SYSTEM_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          requestId: { type: 'string', description: 'Approval request id of the plan' },
+          planKey: { type: 'string', description: 'Plan key of the plan' },
           itemId: { type: 'string', description: 'Checklist item id' },
           itemText: { type: 'string', description: 'Fallback matcher by checklist item text when itemId is unavailable' },
           text: { type: 'string', description: 'Comment text to append to the checklist item' },
         },
-        required: ['requestId', 'text'],
+        required: ['planKey', 'text'],
       },
     },
   },

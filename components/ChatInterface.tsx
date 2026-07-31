@@ -10,6 +10,13 @@ import { useSessionNoteSync, type SessionNoteSyncPort, type UseSessionNoteSyncRe
 import * as SystemService from '../services/systemService';
 import * as ServerChat from '../services/serverChatService';
 
+const normalizeCommentItemError = (err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err || '');
+  if (/\b404\b/.test(message)) return new Error('Checklist item was not found. Please refresh and try again.');
+  if (/\b409\b/.test(message)) return new Error('Checklist item is ambiguous. Please refresh and try again with a clearer item.');
+  return err instanceof Error ? err : new Error(message || 'Comment submission failed.');
+};
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -1002,7 +1009,13 @@ const approvalItems = React.useMemo(() => {
           ? (typeof item?.onCommentItem === 'function'
               ? item.onCommentItem
               : livePending && typeof pendingStrategyPlan?.onCommentItem === 'function'
-                ? pendingStrategyPlan.onCommentItem
+                ? async (itemId: string | undefined, itemText: string | undefined, text: string) => {
+                    try {
+                      return await pendingStrategyPlan.onCommentItem?.(itemId, itemText, text);
+                    } catch (error) {
+                      throw normalizeCommentItemError(error);
+                    }
+                  }
                 : undefined)
           : undefined,
         unread: !seenApprovalIds.includes(trackedId) && item?.status === 'open',
