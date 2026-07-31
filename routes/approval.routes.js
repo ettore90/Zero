@@ -3,9 +3,20 @@ import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { pendingApprovals, approvalDecisions, approvalDeliveryQueue, runningAgentControllers } from '../services/runtime.js';
 import { broadcastToUser } from '../services/streamBroker.js';
 import { flushApprovalContinuationIfIdle } from '../services/llmService.js';
-import { normalizePlanForStorage, appendCommentToPlanItem, broadcastPlanUpdate, isPlausiblePlanPayload, validateCommentInput } from '../services/planState.js';
+import { normalizePlanForStorage, appendCommentToPlanItem, broadcastPlanUpdate, isPlausiblePlanPayload, validateCommentInput, persistPlanRecord } from '../services/planState.js';
 
 const router = Router();
+
+
+router.get('/approval/plans', checkLocalAccess, (_req, res) => {
+  const plans = pendingApprovals.size > 0
+    ? Array.from(pendingApprovals.values()).map((record) => ({
+        ...record,
+        plan: record.plan ?? record.payload ?? null,
+      }))
+    : [];
+  return res.json({ success: true, plans });
+});
 
 
 router.post('/approval/comment-item', checkLocalAccess, (req, res) => {
@@ -60,6 +71,7 @@ router.post('/approval/comment-item', checkLocalAccess, (req, res) => {
   }
 
   pendingApprovals.set(updated.record.requestId, updated.record);
+  persistPlanRecord(updated.record);
   broadcastPlanUpdate(updated.record);
 
   return res.status(200).json({
@@ -105,6 +117,7 @@ router.post('/approval/respond', checkLocalAccess, (req, res) => {
     },
   };
   pendingApprovals.set(requestId, updated);
+  persistPlanRecord(updated);
 
   const decisionRecord = {
     requestId,

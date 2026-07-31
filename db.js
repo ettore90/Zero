@@ -240,6 +240,26 @@ function _createSchema(db) {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS strategy_plans (
+      plan_key TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL UNIQUE,
+      username TEXT NOT NULL,
+      agent_id TEXT,
+      session_id TEXT,
+      tool_call_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      payload TEXT NOT NULL DEFAULT '{}',
+      decision TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_strategy_plans_request_id ON strategy_plans(request_id);
+    CREATE INDEX IF NOT EXISTS idx_strategy_plans_username ON strategy_plans(username);
+    CREATE INDEX IF NOT EXISTS idx_strategy_plans_agent_session ON strategy_plans(username, agent_id, session_id);
+    CREATE INDEX IF NOT EXISTS idx_strategy_plans_updated_at ON strategy_plans(updated_at DESC);
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS subagent_audit (
       id TEXT PRIMARY KEY,
       parent_audit_id TEXT,
@@ -417,6 +437,50 @@ function _createSchema(db) {
       value TEXT NOT NULL
     );
   `);
+
+  _migrateStrategyPlans(db);
+}
+
+
+function _migrateStrategyPlans(db) {
+  const cols = db.prepare(`PRAGMA table_info(strategy_plans)`).all();
+  if (!cols.length) return;
+  const names = new Set(cols.map((c) => c.name));
+  db.exec('BEGIN');
+  try {
+    if (!names.has('plan_key')) {
+      db.exec('ALTER TABLE strategy_plans RENAME TO strategy_plans_legacy');
+      db.exec(`
+        CREATE TABLE strategy_plans (
+          plan_key TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL UNIQUE,
+          username TEXT NOT NULL,
+          agent_id TEXT,
+          session_id TEXT,
+          tool_call_id TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          payload TEXT NOT NULL DEFAULT '{}',
+          decision TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+      db.exec(`
+        INSERT INTO strategy_plans (plan_key, request_id, username, agent_id, session_id, tool_call_id, status, payload, decision, created_at, updated_at)
+        SELECT TRIM(request_id), request_id, username, agent_id, session_id, tool_call_id, status, payload, decision, created_at, updated_at
+        FROM strategy_plans_legacy
+        WHERE request_id IS NOT NULL AND TRIM(request_id) <> '';
+      `);
+      db.exec('DROP TABLE strategy_plans_legacy');
+    }
+    if (!names.has('request_id')) {
+      db.exec('ALTER TABLE strategy_plans ADD COLUMN request_id TEXT');
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 export function closeDb() {

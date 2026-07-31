@@ -225,6 +225,55 @@ const App: React.FC = () => {
         });
     }, [username]);
 
+    const restoreStrategyPlanItemsFromRuntime = useCallback(async () => {
+        try {
+            const response = await fetch(`${LOCAL_BASE}/api/approval/plans`, {
+                headers: { 'Content-Type': 'application/json' },
+            });
+            if (!response.ok) return;
+            const data = await response.json().catch(() => null);
+            const runtimePlans = Array.isArray(data?.plans) ? data.plans : [];
+            if (runtimePlans.length === 0) {
+                setStrategyPlanItems((prev: any[]) => Array.isArray(prev)
+                    ? prev.filter((item: any) => String(item?.source || '').trim() !== 'strategyPlanTracking')
+                    : prev);
+                return;
+            }
+            const now = new Date().toISOString();
+            setStrategyPlanItems((prev: any[]) => {
+                const preserved = Array.isArray(prev)
+                    ? prev.filter((item: any) => String(item?.source || '').trim() !== 'strategyPlanTracking')
+                    : [];
+                const next = [...preserved];
+                for (const record of runtimePlans) {
+                    const requestId = String(record?.requestId || '').trim();
+                    const plan = record?.plan && typeof record.plan === 'object' ? record.plan : record?.payload;
+                    const agentId = String(record?.agentId || '').trim();
+                    if (!requestId || !agentId) continue;
+                    const itemId = String(record?.tool_call_id || requestId);
+                    const baseItem = {
+                        id: itemId,
+                        agentId,
+                        requestId,
+                        planKey: String(record?.planKey || record?.approvalKey || requestId).trim(),
+                        approvalKey: String(record?.approvalKey || record?.planKey || requestId).trim(),
+                        source: 'strategyPlanTracking',
+                        status: record?.status === 'in_progress' ? 'in_progress' : record?.decision?.approved ? 'completed' : 'open',
+                        plan,
+                        createdAt: record?.createdAt ? new Date(record.createdAt).toISOString() : now,
+                        updatedAt: record?.updatedAt ? new Date(record.updatedAt).toISOString() : now,
+                    };
+                    const index = next.findIndex((item: any) => String(item?.id || '').trim() === itemId || String(item?.requestId || '').trim() === requestId || String(item?.planKey || '').trim() === baseItem.planKey);
+                    if (index >= 0) next[index] = { ...next[index], ...baseItem };
+                    else next.push(baseItem);
+                }
+                return next.sort((a: any, b: any) => String(b?.updatedAt || '').localeCompare(String(a?.updatedAt || '')));
+            });
+        } catch {
+            // ignore bootstrap failures; live SSE will still populate future plans
+        }
+    }, [setStrategyPlanItems]);
+
     const mergePlanIntoTrackedItems = useCallback((requestId: string, plan: any, planKey?: string, statusOverride?: 'open' | 'in_progress' | 'completed') => {
         const normalizedRequestId = String(requestId || '').trim();
         const normalizedPlanKey = String(planKey || '').trim();
@@ -670,6 +719,10 @@ const App: React.FC = () => {
     });
     // Injetar respondToApproval no ref após o hook ser criado
     useEffect(() => { respondToApprovalRef.current = _respondToApproval; }, [_respondToApproval]);
+
+    useEffect(() => {
+        void restoreStrategyPlanItemsFromRuntime();
+    }, [restoreStrategyPlanItemsFromRuntime, username]);
 
 
     // Cleanup de refs no unmount — evita memory leak

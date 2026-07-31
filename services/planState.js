@@ -1,4 +1,5 @@
 import { pendingApprovals } from './runtime.js';
+import { upsertPlan, getPlan, hydratePlanStore } from './planStore.js';
 import { broadcastToUser } from './streamBroker.js';
 
 const makeId = (prefix = 'id') => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -151,6 +152,15 @@ export function appendCommentToPlanItem(record, { itemId, itemText, text, author
   return { ok: true, record: updatedRecord, item: updatedItem, comment };
 }
 
+export function persistPlanRecord(record) {
+  const saved = upsertPlan(record);
+  return saved;
+}
+
+export function hydratePlansFromStore() {
+  hydratePlanStore();
+}
+
 export function broadcastPlanUpdate(record) {
   const username = typeof record?.username === 'string' ? record.username.trim() : '';
   if (!username) return false;
@@ -164,6 +174,10 @@ export function broadcastPlanUpdate(record) {
     updatedAt: record.updatedAt || Date.now(),
   });
   return true;
+}
+
+export function getPersistedPlan(requestId) {
+  return getPlan(requestId);
 }
 
 export function findLatestInProgressPlanForAgent({ username, agentId, sessionId }) {
