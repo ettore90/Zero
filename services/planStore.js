@@ -1,4 +1,5 @@
 import { getDb } from '../db.js';
+import { normalizePlanStatus } from './planState.js';
 
 const db = () => getDb();
 const clone = (value) => (value == null ? value : JSON.parse(JSON.stringify(value)));
@@ -19,12 +20,16 @@ function normalizeRecord(record) {
     agentId: typeof record.agentId === 'string' ? record.agentId.trim() : null,
     sessionId: typeof record.sessionId === 'string' ? record.sessionId.trim() : null,
     tool_call_id: typeof record.tool_call_id === 'string' ? record.tool_call_id.trim() : null,
-    status: typeof record.status === 'string' ? record.status : 'pending',
+    status: normalizePlanStatus(record.status) || 'open',
     payload,
     decision: record.decision && typeof record.decision === 'object' ? record.decision : null,
     createdAt: Number.isFinite(Number(record.createdAt)) ? Number(record.createdAt) : now(),
     updatedAt: Number.isFinite(Number(record.updatedAt)) ? Number(record.updatedAt) : now(),
   };
+}
+
+function normalizeLookupKey(value) {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 const stmts = () => {
@@ -78,7 +83,7 @@ function rowToRecord(row) {
     agentId: row.agent_id,
     sessionId: row.session_id,
     tool_call_id: row.tool_call_id,
-    status: row.status,
+    status: normalizePlanStatus(row.status) || 'open',
     payload,
     decision,
     createdAt: row.created_at,
@@ -106,14 +111,16 @@ export function upsertPlan(record) {
   return clone(normalized);
 }
 
-export function getPlan(requestId) {
-  const key = typeof requestId === 'string' ? requestId.trim() : '';
+export function getPlan(identifier) {
+  const key = normalizeLookupKey(identifier);
   if (!key) return null;
-  return rowToRecord(stmts().get.get(key));
+  const byPlanKey = rowToRecord(stmts().getByPlanKey.get(key));
+  if (byPlanKey) return byPlanKey;
+  return rowToRecord(stmts().getByRequestId.get(key));
 }
 
-export function deletePlan(requestId) {
-  const key = typeof requestId === 'string' ? requestId.trim() : '';
+export function deletePlan(identifier) {
+  const key = normalizeLookupKey(identifier);
   if (!key) return false;
   return stmts().delete.run(key, key).changes > 0;
 }

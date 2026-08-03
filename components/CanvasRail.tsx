@@ -192,6 +192,7 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
               </>
             )}
           </svg>
+          {pendingApproval && !isCompactExpanded && <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-orange-400 animate-pulse" aria-hidden="true" />}
         </button>
       </div>
     );

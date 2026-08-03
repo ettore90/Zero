@@ -14,7 +14,7 @@ interface StrategyPlanModalProps {
   plan: StrategyPlan;
   agentName: string;
   onApprove: (revisedPlan?: StrategyPlan) => void;
-  onReject: () => void;
+  onReject?: () => void;
   embedded?: boolean;
   primaryActionLabel?: string;
   onPrimaryAction?: (() => void) | null;
@@ -22,6 +22,7 @@ interface StrategyPlanModalProps {
   hidePrimaryButton?: boolean;
   reviewSummaryText?: string;
   onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
+  onCompleteItem?: (itemId: string | undefined, itemText: string | undefined, done?: boolean) => Promise<void> | void;
   readOnly?: boolean;
 }
 
@@ -81,6 +82,7 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
   hidePrimaryButton = false,
   reviewSummaryText,
   onCommentItem,
+  onCompleteItem,
   readOnly = false,
 }) => {
   const structuredChecklist = useMemo(() => normalizeChecklist(plan), [plan]);
@@ -91,6 +93,7 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
   const [commentDrafts, setCommentDrafts] = useState<Record<ChecklistItemIdentity, string>>({});
   const [commentBusy, setCommentBusy] = useState<Record<ChecklistItemIdentity, boolean>>({});
   const [commentErrors, setCommentErrors] = useState<Record<ChecklistItemIdentity, string>>({});
+  const [completionErrors, setCompletionErrors] = useState<Record<ChecklistItemIdentity, string>>({});
   const [openCommentKey, setOpenCommentKey] = useState<ChecklistItemIdentity | null>(null);
   const hasCommentSupport = typeof onCommentItem === 'function' && !readOnly;
   const nextLocalKeyRef = useRef(0);
@@ -102,8 +105,22 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
 
   const getItemIdentity = (item: LocalChecklistItem, _index?: number): ChecklistItemIdentity => item.id || item.localKey;
 
-  const toggleCheck = (identity: ChecklistItemIdentity) => {
-    setItems(prev => prev.map(item => getItemIdentity(item) === identity ? { ...item, done: !item.done } : item));
+  const toggleCheck = async (identity: ChecklistItemIdentity) => {
+    const item = items.find(current => getItemIdentity(current) === identity);
+    if (!item) return;
+    const nextDone = !item.done;
+    setCompletionErrors(prev => { const next = { ...prev }; delete next[identity]; return next; });
+    setItems(prev => prev.map(current => getItemIdentity(current) === identity ? { ...current, done: nextDone } : current));
+    if (nextDone && typeof onCompleteItem === 'function') {
+      try {
+        await onCompleteItem(item.id, item.text, nextDone);
+      } catch (error) {
+        const message = error instanceof Error && error.message ? error.message : 'Failed to mark checklist item as done.';
+        setItems(prev => prev.map(current => getItemIdentity(current) === identity ? { ...current, done: false } : current));
+        setCompletionErrors(prev => ({ ...prev, [identity]: message }));
+        throw error;
+      }
+    }
   };
 
   const removeItem = (identity: ChecklistItemIdentity) => {
@@ -111,6 +128,7 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
     setCommentDrafts(prev => { const next = { ...prev }; delete next[identity]; return next; });
     setCommentBusy(prev => { const next = { ...prev }; delete next[identity]; return next; });
     setCommentErrors(prev => { const next = { ...prev }; delete next[identity]; return next; });
+    setCompletionErrors(prev => { const next = { ...prev }; delete next[identity]; return next; });
     setOpenCommentKey(prev => prev === identity ? null : prev);
     setEditingKey(prev => prev === identity ? null : prev);
   };
@@ -194,7 +212,7 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
                     <div className="group flex items-center gap-2 rounded-lg pr-1 sm:pr-0">
                       <button
                         type="button"
-                        onClick={() => !readOnly && toggleCheck(itemKey)}
+                        onClick={() => !readOnly && void toggleCheck(itemKey)}
                         className={`w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-colors ${item.done ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 hover:border-slate-400 focus-visible:border-slate-400 dark:border-slate-600 dark:hover:border-slate-400'}`}
                       >
                         {item.done && <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
@@ -264,6 +282,12 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
                         </div>
                       )}
                     </div>
+
+                    {completionErrors[itemKey] && (
+                      <div className="ml-6 rounded-md border border-rose-300/70 bg-rose-50 px-2.5 py-1.5 text-[11px] text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+                        {completionErrors[itemKey]}
+                      </div>
+                    )}
 
                   {Array.isArray(item.comments) && item.comments.length > 0 && (
                     <div className="ml-6 space-y-1">
@@ -384,7 +408,14 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
           <div className="hidden flex-1 sm:block" />
           <p className="order-first text-[10px] text-slate-500 sm:order-none sm:mr-2 dark:text-slate-600">{reviewSummaryText ?? `${items.filter(item => item.done).length}/${items.length} reviewed`}</p>
           {!hidePrimaryButton && (
-            <button type="button" onClick={() => onPrimaryAction ? onPrimaryAction() : onApprove(buildRevisedPlan())} className="w-full rounded-xl bg-indigo-600 px-5 py-2 text-[12px] font-bold text-white transition-colors shadow-lg shadow-indigo-500/20 hover:bg-indigo-500 sm:w-auto">
+            <button type="button" onClick={() => {
+              const revisedPlan = buildRevisedPlan();
+              if (onPrimaryAction) {
+                onPrimaryAction();
+                return;
+              }
+              onApprove(revisedPlan);
+            }} className="w-full rounded-xl bg-indigo-600 px-5 py-2 text-[12px] font-bold text-white transition-colors shadow-lg shadow-indigo-500/20 hover:bg-indigo-500 sm:w-auto">
               {primaryActionLabel ?? 'Approve & Execute'}
             </button>
           )}

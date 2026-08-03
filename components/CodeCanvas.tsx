@@ -277,9 +277,9 @@ export interface CodeCanvasProps {
     plan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] };
     onApprove?: (revisedPlan?: any) => void;
     onReject?: () => void;
-    onMarkCompleted?: () => void;
     onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
-    status?: 'open' | 'in_progress' | 'completed';
+    onCompleteItem?: (itemId: string | undefined, itemText: string | undefined) => Promise<void> | void;
+    status?: 'open' | 'in_progress' | 'completed' | 'canceled';
   } | null;
   isApprovalsSectionOpen?: boolean;
   onApproveTool: () => void;
@@ -340,12 +340,16 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
 
   const renderApprovalSurface = () => {
     if (selectedApproval?.source === 'pendingStrategyPlan' && selectedApproval.plan) {
-      const statusLabel = selectedApproval?.status === 'open' ? 'Open' : selectedApproval?.status === 'in_progress' ? 'In progress' : selectedApproval?.status === 'completed' ? 'Completed' : null;
-      const canApprove = selectedApproval?.status === 'open' && typeof selectedApproval.onApprove === 'function';
-      const canReject = selectedApproval?.status === 'open' && typeof selectedApproval.onReject === 'function';
-      const isReadOnlyCompleted = selectedApproval?.status === 'completed';
-      const canMarkCompleted = selectedApproval?.status === 'in_progress' && typeof selectedApproval.onMarkCompleted === 'function';
-      const canComment = selectedApproval?.status === 'in_progress' && typeof selectedApproval.onCommentItem === 'function';
+      const approvalStatus = selectedApproval?.status as 'open' | 'in_progress' | 'canceled' | 'completed' | undefined;
+      const statusLabel = approvalStatus === 'open' ? 'Open' : approvalStatus === 'in_progress' ? 'In progress' : approvalStatus === 'canceled' ? 'Canceled' : approvalStatus === 'completed' ? 'Completed' : null;
+      const canApprove = approvalStatus === 'open' && typeof selectedApproval.onApprove === 'function';
+      const canCancel = typeof selectedApproval.onReject === 'function' && approvalStatus !== 'completed' && approvalStatus !== 'canceled';
+      const isTerminalStatus = approvalStatus === 'completed' || approvalStatus === 'canceled';
+      const canComment = typeof selectedApproval.onCommentItem === 'function';
+      const isInProgress = approvalStatus === 'in_progress';
+      const primaryActionLabel = isInProgress ? 'Cancelar' : 'Aprovar';
+      const embeddedPrimaryAction = isInProgress ? selectedApproval.onReject : selectedApproval.onApprove;
+      const canShowPrimaryAction = approvalStatus !== 'completed' && approvalStatus !== 'canceled' && typeof embeddedPrimaryAction === 'function';
       return (
         <CanvasViewport className={isDarkTheme ? "bg-[#1e1e1e]" : "bg-white"}>
           <div className={`flex h-full min-h-0 min-w-0 flex-col ${isDarkTheme ? "bg-[#1e1e1e] text-slate-200" : "bg-white text-slate-700"}`}>
@@ -359,6 +363,8 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
                   ? (isDarkTheme ? 'border-amber-500/20 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-100 text-amber-700')
                   : selectedApproval?.status === 'in_progress'
                   ? (isDarkTheme ? 'border-blue-500/20 bg-blue-500/10 text-blue-300' : 'border-blue-300 bg-blue-100 text-blue-700')
+                  : approvalStatus === 'canceled'
+                  ? (isDarkTheme ? 'border-rose-500/20 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-100 text-rose-700')
                   : (isDarkTheme ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-emerald-300 bg-emerald-100 text-emerald-700')}`}>{statusLabel}</span>
               )}
             </div>
@@ -368,14 +374,15 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
                 plan={selectedApproval.plan}
                 agentName="Agent"
                 onApprove={canApprove ? (selectedApproval.onApprove as any) : (() => {})}
-                onReject={canReject ? (selectedApproval.onReject as any) : (() => {})}
-                primaryActionLabel={canMarkCompleted ? 'Mark completed' : undefined}
-                onPrimaryAction={canMarkCompleted ? (() => selectedApproval.onMarkCompleted?.()) : null}
-                hideRejectButton={!canReject || isReadOnlyCompleted}
-                hidePrimaryButton={isReadOnlyCompleted}
-                reviewSummaryText={selectedApproval?.status === 'open' ? 'Awaiting decision.' : selectedApproval?.status === 'in_progress' ? 'Approved and currently tracked as in progress.' : 'This plan has been marked as completed.'}
+                onReject={canCancel ? (selectedApproval.onReject as any) : (() => {})}
+                primaryActionLabel={primaryActionLabel}
+                onPrimaryAction={canShowPrimaryAction ? (embeddedPrimaryAction as any) : null}
+                hideRejectButton={!canCancel || isTerminalStatus || isInProgress}
+                hidePrimaryButton={!canShowPrimaryAction}
+                reviewSummaryText={approvalStatus === 'open' ? 'Awaiting decision.' : approvalStatus === 'in_progress' ? 'This plan is in progress and can be canceled.' : approvalStatus === 'canceled' ? 'This plan was canceled.' : 'This plan has been completed.'}
                 onCommentItem={canComment ? selectedApproval.onCommentItem : undefined}
-                readOnly={selectedApproval?.status === 'completed'}
+                onCompleteItem={typeof selectedApproval.onCompleteItem === 'function' ? selectedApproval.onCompleteItem : undefined}
+                readOnly={isTerminalStatus}
               />
             </div>
           </div>

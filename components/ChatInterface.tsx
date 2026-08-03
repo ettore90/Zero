@@ -41,6 +41,7 @@ interface ChatInterfaceProps {
     onApprove: () => void;
     onReject: () => void;
     onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
+    onCompleteItem?: (itemId: string | undefined, itemText: string | undefined, done?: boolean) => Promise<void> | void;
   } | null;
   onApproveTool: () => void;
   onDenyTool: () => void;
@@ -72,8 +73,9 @@ type ApprovalItem = {
   plan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: string[] | { text?: string; done?: boolean }[] };
   onApprove?: (revisedPlan?: any) => void;
   onReject?: () => void;
-  onMarkCompleted?: () => void;
-  status?: 'open' | 'in_progress' | 'completed';
+  onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
+  onCompleteItem?: (itemId: string | undefined, itemText: string | undefined, done?: boolean) => Promise<void> | void;
+  status?: 'open' | 'in_progress' | 'completed' | 'canceled';
   createdAt?: string;
   updatedAt?: string;
   unread?: boolean;
@@ -975,9 +977,37 @@ const approvalItems = React.useMemo(() => {
       const plan = item?.plan && typeof item.plan === 'object' ? item.plan : {};
       const trackedId = String(item?.id || item?.requestId || `strategy-plan:${agent.id}`).trim();
       if (!trackedId) return;
-      const livePending = pendingStrategyPlan
+      const trackedRequestId = String(item?.requestId || '').trim();
+      const trackedPlanKey = String(item?.planKey || item?.approvalKey || '').trim();
+      const pendingPlan = pendingStrategyPlan as any;
+      const pendingRequestId = String(pendingPlan?.requestId || '').trim();
+      const pendingPlanKey = String(pendingPlan?.planKey || pendingPlan?.approvalKey || '').trim();
+      const livePending = Boolean(
+        pendingStrategyPlan
         && pendingStrategyPlan.agentId === agent.id
-        && String(pendingStrategyPlan.requestId || `strategy-plan:${agent.id}`).trim() === trackedId;
+        && (
+          (pendingRequestId && trackedRequestId && pendingRequestId === trackedRequestId)
+          || (pendingPlanKey && trackedPlanKey && pendingPlanKey === trackedPlanKey)
+          || (pendingRequestId && pendingRequestId === trackedId)
+          || (pendingPlanKey && pendingPlanKey === trackedId)
+        )
+      );
+      const liveApprove = livePending && typeof pendingStrategyPlan?.onApprove === 'function' ? pendingStrategyPlan.onApprove : undefined;
+      const liveReject = livePending && typeof pendingStrategyPlan?.onReject === 'function' ? pendingStrategyPlan.onReject : undefined;
+      const liveComment = livePending && typeof pendingStrategyPlan?.onCommentItem === 'function'
+        ? async (itemId: string | undefined, itemText: string | undefined, text: string) => {
+            try {
+              return await pendingStrategyPlan.onCommentItem?.(itemId, itemText, text);
+            } catch (error) {
+              throw normalizeCommentItemError(error);
+            }
+          }
+        : undefined;
+      const liveComplete = livePending && typeof pendingStrategyPlan?.onCompleteItem === 'function'
+        ? async (itemId: string | undefined, itemText: string | undefined, done?: boolean) => {
+            return await pendingStrategyPlan.onCompleteItem?.(itemId, itemText, done);
+          }
+        : undefined;
       items.push({
         id: trackedId,
         title: typeof plan.title === 'string' && plan.title.trim() ? plan.title : 'Plan approval',
@@ -989,35 +1019,13 @@ const approvalItems = React.useMemo(() => {
         createdAt: item?.createdAt,
         updatedAt: item?.updatedAt,
         onApprove: item?.status === 'open'
-          ? (typeof item?.onApprove === 'function'
-              ? item.onApprove
-              : livePending && typeof pendingStrategyPlan.onApprove === 'function'
-                ? pendingStrategyPlan.onApprove
-                : undefined)
+          ? (liveApprove || (typeof item?.onApprove === 'function' ? item.onApprove : undefined))
           : undefined,
-        onReject: item?.status === 'open'
-          ? (typeof item?.onReject === 'function'
-              ? item.onReject
-              : livePending && typeof pendingStrategyPlan.onReject === 'function'
-                ? pendingStrategyPlan.onReject
-                : undefined)
+        onReject: item?.status === 'open' || item?.status === 'in_progress'
+          ? (liveReject || (typeof item?.onReject === 'function' ? item.onReject : undefined))
           : undefined,
-        onMarkCompleted: item?.status === 'in_progress' && typeof onMarkStrategyPlanCompleted === 'function'
-          ? (() => onMarkStrategyPlanCompleted(trackedId))
-          : undefined,
-        onCommentItem: item?.status === 'in_progress'
-          ? (typeof item?.onCommentItem === 'function'
-              ? item.onCommentItem
-              : livePending && typeof pendingStrategyPlan?.onCommentItem === 'function'
-                ? async (itemId: string | undefined, itemText: string | undefined, text: string) => {
-                    try {
-                      return await pendingStrategyPlan.onCommentItem?.(itemId, itemText, text);
-                    } catch (error) {
-                      throw normalizeCommentItemError(error);
-                    }
-                  }
-                : undefined)
-          : undefined,
+        onCommentItem: liveComment || (typeof item?.onCommentItem === 'function' ? item.onCommentItem : undefined),
+        onCompleteItem: liveComplete || (typeof item?.onCompleteItem === 'function' ? item.onCompleteItem : undefined),
         unread: !seenApprovalIds.includes(trackedId) && item?.status === 'open',
       } as any);
     });

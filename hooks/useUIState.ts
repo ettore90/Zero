@@ -7,7 +7,7 @@ import { Agent, ToolCall } from '../types';
 import { DryRunPayload } from '../components/DryRunModal';
 
 
-export type StrategyPlanTrackingStatus = 'open' | 'in_progress' | 'completed';
+export type StrategyPlanTrackingStatus = 'open' | 'in_progress' | 'completed' | 'canceled';
 
 export interface StrategyPlanTrackingItem {
   id: string;
@@ -23,6 +23,7 @@ export interface StrategyPlanTrackingItem {
   onApprove?: (revisedPlan?: any) => void;
   onReject?: () => void;
   onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
+  onCompleteItem?: (itemId: string | undefined, itemText: string | undefined, done?: boolean) => Promise<void> | void;
 }
 
 
@@ -52,6 +53,7 @@ export const useUIState = () => {
     onApprove: (revisedPlan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] }) => void;
     onReject: () => void;
     onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
+    onCompleteItem?: (itemId: string | undefined, itemText: string | undefined, done?: boolean) => Promise<void> | void;
   } | null>(null);
   const [pendingDryRun, setPendingDryRun] = useState<{ payload: DryRunPayload; resolve: (v: boolean) => void } | null>(null);
   const [strategyPlanItems, setStrategyPlanItems] = useState<StrategyPlanTrackingItem[]>([]);

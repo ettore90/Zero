@@ -9,6 +9,20 @@ const MAX_CHECKLIST_ITEMS = 200;
 const MAX_COMMENTS_PER_ITEM = 100;
 const MAX_COMMENT_TEXT_LENGTH = 4000;
 
+const CANONICAL_PLAN_TERMINAL_STATUSES = new Set(['completed', 'canceled']);
+
+export function normalizePlanStatus(status) {
+  const normalized = typeof status === 'string' ? status.trim().toLowerCase() : '';
+  if (!normalized) return '';
+  if (normalized === 'cancelled' || normalized === 'rejected') return 'canceled';
+  if (normalized === 'approved') return 'in_progress';
+  return normalized;
+}
+
+export function isTerminalPlanStatus(status) {
+  return CANONICAL_PLAN_TERMINAL_STATUSES.has(normalizePlanStatus(status));
+}
+
 const clampTrimmedString = (value, maxLength) => {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();
@@ -104,8 +118,9 @@ export function markPlanItemCompleted(record, { itemId, itemText }) {
   const index = resolved.index;
   const updatedItem = { ...checklist[index], done: true };
   checklist[index] = updatedItem;
-  const updatedPlan = { ...normalizedPlan, checklist };
-  const updatedRecord = { ...record, plan: updatedPlan, payload: updatedPlan, updatedAt: Date.now() };
+  const allDone = checklist.length > 0 && checklist.every((item) => Boolean(item?.done));
+  const updatedPlan = { ...normalizedPlan, checklist, ...(allDone ? { status: 'completed' } : {}) };
+  const updatedRecord = { ...record, plan: updatedPlan, payload: updatedPlan, status: allDone ? 'completed' : normalizePlanStatus(record?.status), updatedAt: Date.now() };
   return { ok: true, record: updatedRecord, item: updatedItem };
 }
 
@@ -116,8 +131,10 @@ export function normalizePlanForStorage(plan) {
     const normalized = normalizeChecklistItem(item, index);
     return normalized ? normalized : null;
   }).filter(Boolean);
+  const normalizedStatus = normalizePlanStatus(plan.status);
   return {
     ...plan,
+    ...(normalizedStatus ? { status: normalizedStatus } : {}),
     title: typeof plan.title === 'string' ? clampTrimmedString(plan.title, MAX_PLAN_TEXT_LENGTH) : plan.title,
     objective: typeof plan.objective === 'string' ? clampTrimmedString(plan.objective, MAX_PLAN_TEXT_LENGTH) : plan.objective,
     approach: typeof plan.approach === 'string' ? clampTrimmedString(plan.approach, MAX_PLAN_TEXT_LENGTH) : plan.approach,
@@ -155,6 +172,18 @@ export function appendCommentToPlanItem(record, { itemId, itemText, text, author
 export function persistPlanRecord(record) {
   const saved = upsertPlan(record);
   return saved;
+}
+
+
+export function finalizePlanIfComplete(record) {
+  const normalizedPlan = normalizePlanForStorage(record?.plan ?? record?.payload);
+  const checklist = Array.isArray(normalizedPlan?.checklist) ? normalizedPlan.checklist : [];
+  if (checklist.length > 0 && !checklist.every((item) => Boolean(item?.done))) {
+    const pendingCount = checklist.filter((item) => !item?.done).length;
+    return { ok: false, error: 'Plan cannot be finalized until all checklist items are done', details: { pendingCount, totalCount: checklist.length } };
+  }
+  const finalizedRecord = { ...record, plan: normalizedPlan, payload: normalizedPlan, status: 'completed', updatedAt: Date.now() };
+  return { ok: true, record: finalizedRecord };
 }
 
 export function hydratePlansFromStore() {

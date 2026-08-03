@@ -2788,7 +2788,7 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         if (!updated.ok) return { error: updated.error || 'Checklist item not found' };
         pendingApprovals.set(updated.record.requestId, updated.record);
         broadcastPlanUpdate(updated.record);
-        return { success: true, planKey: updated.record.requestId, item: updated.item };
+        return { success: true, planKey: updated.record.requestId, planStatus: updated.record.status, itemStatus: updated.item?.status || 'done', item: updated.item };
     }
 
     if (toolName === 'comment_plan_checklist_item') {

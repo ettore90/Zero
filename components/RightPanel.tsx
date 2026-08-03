@@ -14,7 +14,7 @@ export interface RightPanelApprovalItem {
   id: string;
   title?: string | null;
   source?: string;
-  status?: 'open' | 'in_progress' | 'completed';
+  status?: 'open' | 'in_progress' | 'completed' | 'canceled';
   updatedAt?: string;
   unread?: boolean;
 }
@@ -160,20 +160,29 @@ const RightPanel: React.FC<RightPanelProps> = ({
                   </div>
                 ) : (() => {
                   const sortByUpdatedAtDesc = (items: RightPanelApprovalItem[]) => [...items].sort((a, b) => String(b?.updatedAt || '').localeCompare(String(a?.updatedAt || '')) || String(a?.id || '').localeCompare(String(b?.id || '')));
-                  const openPlans = sortByUpdatedAtDesc(approvals.filter((approval) => approval?.source === 'pendingStrategyPlan' && approval?.status === 'open'));
-                  const inProgressPlans = sortByUpdatedAtDesc(approvals.filter((approval) => approval?.source === 'pendingStrategyPlan' && approval?.status === 'in_progress'));
-                  const completedPlans = sortByUpdatedAtDesc(approvals.filter((approval) => approval?.source === 'pendingStrategyPlan' && approval?.status === 'completed'));
+                  const getApprovalStatus = (approval: RightPanelApprovalItem) => {
+                    const rawStatus = String((approval as any)?.planStatus || (approval as any)?.itemStatus || approval?.status || '').trim().toLowerCase();
+                    if (rawStatus === 'cancelled' || rawStatus === 'rejected') return 'canceled';
+                    return rawStatus;
+                  };
+                  const openPlans = sortByUpdatedAtDesc(approvals.filter((approval) => approval?.source === 'pendingStrategyPlan' && getApprovalStatus(approval) === 'open'));
+                  const inProgressPlans = sortByUpdatedAtDesc(approvals.filter((approval) => approval?.source === 'pendingStrategyPlan' && getApprovalStatus(approval) === 'in_progress'));
+                  const completedPlans = sortByUpdatedAtDesc(approvals.filter((approval) => approval?.source === 'pendingStrategyPlan' && getApprovalStatus(approval) === 'completed'));
+                  const canceledPlans = sortByUpdatedAtDesc(approvals.filter((approval) => approval?.source === 'pendingStrategyPlan' && getApprovalStatus(approval) === 'canceled'));
                   const otherApprovals = sortByUpdatedAtDesc(approvals.filter((approval) => approval?.source !== 'pendingStrategyPlan'));
                   const renderApprovalButton = (approval: RightPanelApprovalItem) => {
                     const approvalId = String(approval.id || '').trim();
                     const isActive = approvalId !== '' && approvalId === normalizedActiveApprovalId;
-                    const statusLabel = approval?.status === 'open' ? 'Open' : approval?.status === 'in_progress' ? 'In progress' : approval?.status === 'completed' ? 'Completed' : null;
-                    const statusTone = approval?.status === 'open'
+                    const statusValue = getApprovalStatus(approval);
+                    const statusLabel = statusValue === 'open' ? 'Open' : statusValue === 'in_progress' ? 'In progress' : statusValue === 'completed' ? 'Completed' : statusValue === 'canceled' ? 'Canceled' : null;
+                    const statusTone = statusValue === 'open'
                       ? 'border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300'
-                      : approval?.status === 'in_progress'
+                      : statusValue === 'in_progress'
                       ? 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300'
-                      : approval?.status === 'completed'
+                      : statusValue === 'completed'
                       ? 'border-emerald-300 bg-emerald-100 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300'
+                      : statusValue === 'canceled'
+                      ? 'border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300'
                       : 'border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300';
                     return (
                       <button
@@ -208,6 +217,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
                       {renderGroup('Open plans', openPlans)}
                       {renderGroup('Work in progress', inProgressPlans)}
                       {renderGroup('Completed plans', completedPlans)}
+                      {renderGroup('Canceled plans', canceledPlans)}
                       {renderGroup('Other approvals', otherApprovals)}
                     </div>
                   );

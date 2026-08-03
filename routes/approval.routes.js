@@ -3,7 +3,7 @@ import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { pendingApprovals, approvalDecisions, approvalDeliveryQueue, runningAgentControllers } from '../services/runtime.js';
 import { broadcastToUser } from '../services/streamBroker.js';
 import { flushApprovalContinuationIfIdle } from '../services/llmService.js';
-import { normalizePlanForStorage, appendCommentToPlanItem, broadcastPlanUpdate, isPlausiblePlanPayload, validateCommentInput, persistPlanRecord } from '../services/planState.js';
+import { normalizePlanForStorage, appendCommentToPlanItem, broadcastPlanUpdate, isPlausiblePlanPayload, validateCommentInput, persistPlanRecord, markPlanItemCompleted, finalizePlanIfComplete, normalizePlanStatus, isTerminalPlanStatus } from '../services/planState.js';
 
 const router = Router();
 
@@ -84,20 +84,79 @@ router.post('/approval/comment-item', checkLocalAccess, (req, res) => {
   });
 });
 
+
+router.post('/approval/complete-item', checkLocalAccess, (req, res) => {
+  const { requestId, planKey, itemId, itemText, username } = req.body || {};
+
+  const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
+  const normalizedPlanKey = typeof planKey === 'string' ? planKey.trim() : '';
+  const normalizedUsername = typeof username === 'string' ? username.trim() : '';
+  const normalizedItemId = typeof itemId === 'string' ? itemId.trim() : '';
+  const normalizedItemText = typeof itemText === 'string' ? itemText.trim() : '';
+  const lookupKey = normalizedPlanKey || normalizedRequestId;
+
+  if (!normalizedUsername) return res.status(400).json({ error: 'username required' });
+  if (!lookupKey) return res.status(400).json({ error: 'planKey or requestId required' });
+  if (!normalizedItemId && !normalizedItemText) return res.status(400).json({ error: 'itemId or itemText required' });
+
+  const pending = pendingApprovals.get(lookupKey) || (normalizedRequestId ? pendingApprovals.get(normalizedRequestId) : null);
+  if (!pending) {
+    return res.status(404).json({ error: 'No pending approval found for planKey/requestId' });
+  }
+  if (String(pending.username || '').trim() !== normalizedUsername) {
+    return res.status(403).json({ error: 'Username does not match pending approval' });
+  }
+
+  const normalizedStatus = normalizePlanStatus(pending.status);
+  if (isTerminalPlanStatus(normalizedStatus)) {
+    return res.status(409).json({ error: 'Cannot mutate checklist items on a terminal plan' });
+  }
+
+  const completed = markPlanItemCompleted(pending, normalizedItemId ? { itemId: normalizedItemId } : { itemText: normalizedItemText });
+  if (!completed.ok) {
+    return res.status(404).json({ error: completed.error || 'Checklist item not found' });
+  }
+
+  const nextRecord = completed.record;
+  const finalized = finalizePlanIfComplete(nextRecord);
+  const finalRecord = finalized.ok ? finalized.record : nextRecord;
+  const pendingPlanKey = finalRecord.planKey || lookupKey;
+  const pendingRequestId = finalRecord.requestId || normalizedRequestId || pendingPlanKey;
+
+  pendingApprovals.set(pendingPlanKey, finalRecord);
+  if (pendingRequestId && pendingRequestId !== pendingPlanKey) pendingApprovals.set(pendingRequestId, finalRecord);
+  persistPlanRecord(finalRecord);
+  broadcastPlanUpdate(finalRecord);
+
+  return res.status(200).json({
+    success: true,
+    planKey: pendingPlanKey,
+    requestId: pendingRequestId,
+    item: completed.item,
+    itemStatus: completed.item?.done ? 'done' : 'open',
+    planStatus: finalRecord.status,
+    plan: finalRecord.plan,
+    status: finalRecord.status,
+    updatedAt: finalRecord.updatedAt,
+  });
+});
+
 router.post('/approval/respond', checkLocalAccess, (req, res) => {
-  const { requestId, approved, payload } = req.body;
+  const { requestId, planKey, approved, payload } = req.body;
 
   if (!requestId) {
     return res.status(400).json({ error: 'requestId required' });
   }
 
-  const pending = pendingApprovals.get(requestId);
+  const normalizedPlanKey = typeof planKey === 'string' ? planKey.trim() : '';
+  const lookupKey = normalizedPlanKey || requestId;
+  const pending = pendingApprovals.get(lookupKey) || pendingApprovals.get(requestId);
   if (!pending) {
     return res.status(404).json({ error: 'No pending approval with this requestId' });
   }
 
   const decidedAt = Date.now();
-  const status = approved === true ? 'in_progress' : 'rejected';
+  const status = normalizePlanStatus(approved === true ? 'in_progress' : 'canceled');
   const hasPayloadOverride = payload && typeof payload === 'object' && !Array.isArray(payload);
   if (hasPayloadOverride && !isPlausiblePlanPayload(payload)) {
     return res.status(400).json({ error: 'Invalid approval payload shape' });
@@ -116,7 +175,8 @@ router.post('/approval/respond', checkLocalAccess, (req, res) => {
       decidedAt,
     },
   };
-  pendingApprovals.set(requestId, updated);
+  pendingApprovals.set(updated.planKey || lookupKey, updated);
+  if (updated.requestId && updated.requestId !== (updated.planKey || lookupKey)) pendingApprovals.set(updated.requestId, updated);
   persistPlanRecord(updated);
 
   const decisionRecord = {
@@ -165,7 +225,7 @@ router.post('/approval/respond', checkLocalAccess, (req, res) => {
     success: true,
     status,
     requestId,
-    planKey: updated.requestId || requestId,
+    planKey: updated.planKey || requestId,
     agentId: updated.agentId || null,
     sessionId: updated.sessionId || null,
     approved: approved === true,

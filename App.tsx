@@ -225,56 +225,23 @@ const App: React.FC = () => {
         });
     }, [username]);
 
-    const restoreStrategyPlanItemsFromRuntime = useCallback(async () => {
-        try {
-            const response = await fetch(`${LOCAL_BASE}/api/approval/plans`, {
-                headers: { 'Content-Type': 'application/json' },
-            });
-            if (!response.ok) return;
-            const data = await response.json().catch(() => null);
-            const runtimePlans = Array.isArray(data?.plans) ? data.plans : [];
-            if (runtimePlans.length === 0) {
-                setStrategyPlanItems((prev: any[]) => Array.isArray(prev)
-                    ? prev.filter((item: any) => String(item?.source || '').trim() !== 'strategyPlanTracking')
-                    : prev);
-                return;
-            }
-            const now = new Date().toISOString();
-            setStrategyPlanItems((prev: any[]) => {
-                const preserved = Array.isArray(prev)
-                    ? prev.filter((item: any) => String(item?.source || '').trim() !== 'strategyPlanTracking')
-                    : [];
-                const next = [...preserved];
-                for (const record of runtimePlans) {
-                    const requestId = String(record?.requestId || '').trim();
-                    const plan = record?.plan && typeof record.plan === 'object' ? record.plan : record?.payload;
-                    const agentId = String(record?.agentId || '').trim();
-                    if (!requestId || !agentId) continue;
-                    const itemId = String(record?.tool_call_id || requestId);
-                    const baseItem = {
-                        id: itemId,
-                        agentId,
-                        requestId,
-                        planKey: String(record?.planKey || record?.approvalKey || requestId).trim(),
-                        approvalKey: String(record?.approvalKey || record?.planKey || requestId).trim(),
-                        source: 'strategyPlanTracking',
-                        status: record?.status === 'in_progress' ? 'in_progress' : record?.decision?.approved ? 'completed' : 'open',
-                        plan,
-                        createdAt: record?.createdAt ? new Date(record.createdAt).toISOString() : now,
-                        updatedAt: record?.updatedAt ? new Date(record.updatedAt).toISOString() : now,
-                    };
-                    const index = next.findIndex((item: any) => String(item?.id || '').trim() === itemId || String(item?.requestId || '').trim() === requestId || String(item?.planKey || '').trim() === baseItem.planKey);
-                    if (index >= 0) next[index] = { ...next[index], ...baseItem };
-                    else next.push(baseItem);
-                }
-                return next.sort((a: any, b: any) => String(b?.updatedAt || '').localeCompare(String(a?.updatedAt || '')));
-            });
-        } catch {
-            // ignore bootstrap failures; live SSE will still populate future plans
+    const postApprovalItemComplete = useCallback(async (requestId: string, planKey: string | undefined, itemId: string | undefined, itemText: string | undefined) => {
+        const response = await fetch(`${LOCAL_BASE}/api/approval/complete-item`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ requestId, planKey, itemId, itemText, username }),
+        });
+        if (!response.ok) {
+            throw new Error(await response.text());
         }
-    }, [setStrategyPlanItems]);
+        return response.json();
+    }, [username]);
 
-    const mergePlanIntoTrackedItems = useCallback((requestId: string, plan: any, planKey?: string, statusOverride?: 'open' | 'in_progress' | 'completed') => {
+
+
+
+
+    const mergePlanIntoTrackedItems = useCallback((requestId: string, plan: any, planKey?: string, statusOverride?: 'open' | 'in_progress' | 'completed' | 'canceled') => {
         const normalizedRequestId = String(requestId || '').trim();
         const normalizedPlanKey = String(planKey || '').trim();
         const normalizedApprovalKey = normalizedPlanKey || normalizedRequestId;
@@ -310,6 +277,130 @@ const App: React.FC = () => {
         setAgentGenerating(agentId, value, null, agentsRef.current.find(a => a.id === agentId)?.activeSessionId ?? null);
         isGeneratingRef.current = value;
     }, [setAgentGenerating]);
+
+    const buildRuntimePlanCallbacks = useCallback((record: any) => {
+        const requestId = String(record?.requestId || '').trim();
+        const planKey = String(record?.planKey || record?.approvalKey || requestId).trim();
+        const agentId = String(record?.agentId || '').trim();
+        const normalizedStatus = String(record?.status || '').trim().toLowerCase();
+        const isMutablePlan = normalizedStatus === 'open' || normalizedStatus === 'in_progress';
+        const commentOnItem = async (itemId: string | undefined, itemText: string | undefined, text: string) => {
+            if (!isMutablePlan || !requestId || !String(text || '').trim()) return;
+            await postApprovalItemComment(requestId, itemId, itemText, text);
+        };
+        const completeItem = async (itemId: string | undefined, itemText: string | undefined) => {
+            if (!isMutablePlan) return;
+            if ((!requestId && !planKey) || (!String(itemId || '').trim() && !String(itemText || '').trim())) return;
+            const result = await postApprovalItemComplete(requestId, planKey || undefined, itemId, itemText);
+            const updatedPlan = result?.plan && typeof result.plan === 'object' ? result.plan : undefined;
+            const normalizedStatus = String(result?.planStatus || result?.status || '').trim().toLowerCase();
+            const isCompleted = normalizedStatus === 'completed';
+            const updatedAt = new Date().toISOString();
+            setStrategyPlanItems((prev: any[]) => (Array.isArray(prev) ? prev.map((item: any) => (
+                String(item?.requestId || '').trim() === requestId
+                    || String(item?.planKey || '').trim() === planKey
+                    || String(item?.approvalKey || '').trim() === planKey
+                    ? {
+                        ...item,
+                        ...(updatedPlan ? { plan: updatedPlan } : {}),
+                        ...(isCompleted ? { status: 'completed' } : {}),
+                        updatedAt,
+                      }
+                    : item
+            )) : prev));
+            setPendingStrategyPlan((prev: any) => {
+                if (!prev) return prev;
+                const matches = String(prev?.requestId || '').trim() === requestId
+                    || String(prev?.planKey || '').trim() === planKey
+                    || String(prev?.approvalKey || '').trim() === planKey;
+                if (!matches) return prev;
+                if (isCompleted) return null;
+                return { ...prev, ...(updatedPlan ? { plan: updatedPlan } : {}), updatedAt };
+            });
+            if (isCompleted) {
+                syncAgentGeneratingState(agentId, false);
+            }
+        };
+        const cancelPlan = () => {
+            const updatedAt = new Date().toISOString();
+            setStrategyPlanItems((prev: any[]) => (Array.isArray(prev)
+                ? prev.map((item: any) => (
+                    String(item?.requestId || '').trim() === requestId
+                        || String(item?.planKey || '').trim() === planKey
+                        || String(item?.approvalKey || '').trim() === planKey
+                        ? { ...item, status: 'canceled', updatedAt }
+                        : item
+                ))
+                : prev));
+            syncAgentGeneratingState(agentId, false);
+            if (requestId) respondToApprovalRef.current?.(requestId, false);
+            setPendingStrategyPlan((prev: any) => (
+                String(prev?.requestId || '').trim() === requestId
+                    || String(prev?.planKey || '').trim() === planKey
+                    || String(prev?.approvalKey || '').trim() === planKey
+                    ? { ...prev, status: 'canceled', updatedAt }
+                    : prev
+            ));
+        };
+        return {
+            ...(isMutablePlan ? { onCommentItem: commentOnItem, onCompleteItem: completeItem } : {}),
+            ...(normalizedStatus === 'open' ? { onReject: cancelPlan } : {}),
+        };
+    }, [postApprovalItemComment, postApprovalItemComplete, setPendingStrategyPlan, setStrategyPlanItems, syncAgentGeneratingState]);
+
+    const restoreStrategyPlanItemsFromRuntime = useCallback(async () => {
+        try {
+            const response = await fetch(`${LOCAL_BASE}/api/approval/plans`, {
+                headers: { 'Content-Type': 'application/json' },
+            });
+            if (!response.ok) return;
+            const data = await response.json().catch(() => null);
+            const runtimePlans = Array.isArray(data?.plans) ? data.plans : [];
+            if (runtimePlans.length === 0) {
+                setStrategyPlanItems((prev: any[]) => Array.isArray(prev)
+                    ? prev.filter((item: any) => String(item?.source || '').trim() !== 'strategyPlanTracking')
+                    : prev);
+                return;
+            }
+            const now = new Date().toISOString();
+            setStrategyPlanItems((prev: any[]) => {
+                const preserved = Array.isArray(prev)
+                    ? prev.filter((item: any) => String(item?.source || '').trim() !== 'strategyPlanTracking')
+                    : [];
+                const next = [...preserved];
+                for (const record of runtimePlans) {
+                    const requestId = String(record?.requestId || '').trim();
+                    const plan = record?.plan && typeof record.plan === 'object' ? record.plan : record?.payload;
+                    const agentId = String(record?.agentId || '').trim();
+                    if (!requestId || !agentId) continue;
+                    const itemId = String(record?.tool_call_id || requestId);
+                    const statusPlan = String(record?.statusPlan || record?.status || record?.decision?.status || '').trim().toLowerCase();
+                    const normalizedStatus = statusPlan === 'approved' ? 'in_progress' : statusPlan === 'cancelled' || statusPlan === 'rejected' ? 'canceled' : statusPlan === 'open' || statusPlan === 'in_progress' || statusPlan === 'completed' || statusPlan === 'canceled' ? statusPlan : '';
+                    const derivedStatus = normalizedStatus || (record?.decision?.approved ? 'completed' : 'open');
+                    const callbacks = buildRuntimePlanCallbacks(record);
+                    const baseItem = {
+                        id: itemId,
+                        agentId,
+                        requestId,
+                        planKey: String(record?.planKey || record?.approvalKey || requestId).trim(),
+                        approvalKey: String(record?.approvalKey || record?.planKey || requestId).trim(),
+                        source: 'strategyPlanTracking',
+                        status: derivedStatus,
+                        plan,
+                        createdAt: record?.createdAt ? new Date(record.createdAt).toISOString() : now,
+                        updatedAt: record?.updatedAt ? new Date(record.updatedAt).toISOString() : now,
+                        ...callbacks,
+                    };
+                    const index = next.findIndex((item: any) => String(item?.id || '').trim() === itemId || String(item?.requestId || '').trim() === requestId || String(item?.planKey || '').trim() === baseItem.planKey);
+                    if (index >= 0) next[index] = { ...next[index], ...baseItem };
+                    else next.push(baseItem);
+                }
+                return next.sort((a: any, b: any) => String(b?.updatedAt || '').localeCompare(String(a?.updatedAt || '')));
+            });
+        } catch {
+            // ignore bootstrap failures; live SSE will still populate future plans
+        }
+    }, [buildRuntimePlanCallbacks, setStrategyPlanItems]);
 
     const sseHandlersRef = useRef({
         addNotification,
@@ -588,12 +679,14 @@ const App: React.FC = () => {
                 if (agentId) {
                     syncAgentGeneratingState(agentId, false);
                 }
+                const planStatus = event.planStatus || event.itemStatus || event.status || null;
                 if (event.requestId && event.plan) {
-                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined, event.status === 'approved' ? 'in_progress' : undefined);
+                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined, planStatus === 'approved' ? 'in_progress' : planStatus === 'in_progress' ? 'in_progress' : planStatus === 'canceled' || planStatus === 'cancelled' || planStatus === 'rejected' ? 'canceled' : undefined);
                 }
             } else if (event.type === 'approval:plan_updated') {
+                const planStatus = event.planStatus || event.itemStatus || event.status || null;
                 if (event.requestId && event.plan) {
-                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined);
+                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined, planStatus === 'completed' ? 'completed' : planStatus === 'in_progress' ? 'in_progress' : planStatus === 'canceled' || planStatus === 'cancelled' || planStatus === 'rejected' ? 'canceled' : undefined);
                 }
             } else if (event.type === 'write_file_dry_run') {
                 sseHandlersRef.current.setPendingDryRun({
@@ -658,6 +751,39 @@ const App: React.FC = () => {
                 if (!latestRequestId || !String(text || '').trim()) return;
                 await postApprovalItemComment(latestRequestId, itemId, itemText, text);
             };
+            const completeItem = async (itemId: string | undefined, itemText: string | undefined) => {
+                const latestRequestId = String(data.requestId || '').trim();
+                const latestPlanKey = String(data.planKey || data.approvalKey || latestRequestId || '').trim();
+                if ((!latestRequestId && !latestPlanKey) || (!String(itemId || '').trim() && !String(itemText || '').trim())) return;
+                const result = await postApprovalItemComplete(latestRequestId, latestPlanKey || undefined, itemId, itemText);
+                const updatedPlan = result?.plan && typeof result.plan === 'object' ? result.plan : undefined;
+                const isCompleted = result?.planStatus === 'completed' || result?.status === 'completed';
+                const updatedAt = new Date().toISOString();
+                setStrategyPlanItems((prev: any[]) => (Array.isArray(prev) ? prev.map((item: any) => (
+                    String(item?.requestId || '').trim() === latestRequestId
+                        || String(item?.planKey || '').trim() === latestPlanKey
+                        || String(item?.approvalKey || '').trim() === latestPlanKey
+                        ? {
+                            ...item,
+                            ...(updatedPlan ? { plan: updatedPlan } : {}),
+                            ...(isCompleted ? { status: 'completed' } : {}),
+                            updatedAt,
+                          }
+                        : item
+                )) : prev));
+                setPendingStrategyPlan((prev: any) => {
+                    if (!prev) return prev;
+                    const matches = String(prev?.requestId || '').trim() === latestRequestId
+                        || String(prev?.planKey || '').trim() === latestPlanKey
+                        || String(prev?.approvalKey || '').trim() === latestPlanKey;
+                    if (!matches) return prev;
+                    if (isCompleted) return null;
+                    return { ...prev, ...(updatedPlan ? { plan: updatedPlan } : {}), updatedAt };
+                });
+                if (isCompleted) {
+                    syncAgentGeneratingState(data.agentId, false);
+                }
+            };
             const planKey = String(data.planKey || data.approvalKey || requestId || '').trim();
             const itemId = String(requestId || `strategy-plan:${String(data.agentId || '').trim() || 'unknown'}:${Date.now()}`);
             const now = new Date().toISOString();
@@ -673,13 +799,27 @@ const App: React.FC = () => {
                 respondToApprovalRef.current?.(data.requestId, true, approvedPlan);
                 setPendingStrategyPlan((prev: any) => String(prev?.requestId || '').trim() === requestId ? null : prev);
             };
-            const rejectPlan = () => {
+            const cancelPlan = () => {
+                const updatedAt = new Date().toISOString();
                 setStrategyPlanItems((prev: any[]) => (Array.isArray(prev)
-                    ? prev.filter((item: any) => String(item?.id || '').trim() !== itemId)
+                    ? prev.map((item: any) => (
+                        String(item?.id || '').trim() === itemId
+                            || String(item?.requestId || '').trim() === requestId
+                            || String(item?.planKey || '').trim() === planKey
+                            || String(item?.approvalKey || '').trim() === planKey
+                            ? { ...item, status: 'canceled', updatedAt }
+                            : item
+                    ))
                     : prev));
                 syncAgentGeneratingState(data.agentId, false);
                 respondToApprovalRef.current?.(data.requestId, false);
-                setPendingStrategyPlan((prev: any) => String(prev?.requestId || '').trim() === requestId ? null : prev);
+                setPendingStrategyPlan((prev: any) => (
+                    String(prev?.requestId || '').trim() === requestId
+                        || String(prev?.planKey || '').trim() === planKey
+                        || String(prev?.approvalKey || '').trim() === planKey
+                        ? { ...prev, status: 'canceled', updatedAt }
+                        : prev
+                ));
             };
             setStrategyPlanItems((prev: any[]) => {
                 const next = Array.isArray(prev) ? [...prev] : [];
@@ -695,8 +835,9 @@ const App: React.FC = () => {
                     plan: strategyPlan,
                     updatedAt: now,
                     onApprove: approvePlan,
-                    onReject: rejectPlan,
+                    onReject: cancelPlan,
                     onCommentItem: commentOnItem,
+                    onCompleteItem: completeItem,
                 };
                 if (index >= 0) {
                     next[index] = { ...next[index], ...baseItem, createdAt: next[index]?.createdAt || now };
@@ -712,8 +853,9 @@ const App: React.FC = () => {
                 approvalKey: planKey,
                 plan: strategyPlan,
                 onApprove: approvePlan,
-                onReject: rejectPlan,
+                onReject: cancelPlan,
                 onCommentItem: commentOnItem,
+                onCompleteItem: completeItem,
             } as any);
         }, [setPendingStrategyPlan, setStrategyPlanItems, syncAgentGeneratingState]),
     });

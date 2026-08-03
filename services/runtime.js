@@ -1,7 +1,7 @@
 import { createSessionStore } from '../sessionStore.js';
 import { env } from '../config/env.js';
 import { globalCircuitBreaker } from './circuitBreaker.js';
-import { hydratePlansFromStore } from './planState.js';
+import { hydratePlansFromStore, normalizePlanStatus } from './planState.js';
 import { hydratePlanStore } from './planStore.js';
 
 export const sessionStore = createSessionStore(env.STORAGE_PATH);
@@ -32,7 +32,8 @@ const reconcileHydratedPlans = () => {
     const requestId = typeof record.requestId === 'string' ? record.requestId.trim() : '';
     if (!requestId) continue;
 
-    pendingApprovals.set(requestId, record);
+    const normalizedRecord = { ...record, status: normalizePlanStatus(record?.status) || 'open' };
+    pendingApprovals.set(requestId, normalizedRecord);
     if (record.decision && typeof record.decision === 'object') {
       approvalDecisions.set(requestId, {
         requestId,

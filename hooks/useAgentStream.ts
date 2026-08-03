@@ -16,8 +16,8 @@ export type AgentStreamEvent =
     | { type: 'agent_start';      agentId: string; agentName: string; model: string }
     | { type: 'agent_done';       agentId: string; agentName: string; durationMs: number; iterations: number }
     | { type: 'approval_required'; agentId: string; requestId: string; title: string; objective: string; approach: string; risks?: string; checklist?: string[] }
-    | { type: 'approval:decision'; agentId?: string | null; requestId: string; sessionId?: string | null; approved: boolean; payload?: any; plan?: any; status: string }
-    | { type: 'approval:plan_updated'; agentId?: string | null; requestId: string; sessionId?: string | null; payload?: any; plan?: any; status?: string | null; updatedAt?: number }
+    | { type: 'approval:decision'; agentId?: string | null; requestId: string; sessionId?: string | null; approved: boolean; payload?: any; plan?: any; status?: string | null; planStatus?: string | null; itemStatus?: string | null; updatedAt?: number }
+    | { type: 'approval:plan_updated'; agentId?: string | null; requestId: string; sessionId?: string | null; payload?: any; plan?: any; status?: string | null; planStatus?: string | null; itemStatus?: string | null; updatedAt?: number }
     | { type: 'write_file_dry_run'; agentId: string; requestId: string; tool_call_id: string; path: string; originalContent: string; proposedContent: string }
     | { type: 'alerts';           alerts: Alert[] }
     | { type: 'delegate_status';  masterAgentId: string; subAgentId: string; subAgentName?: string; status: string; detail?: any; taskPreview?: string }
