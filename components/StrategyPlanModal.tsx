@@ -21,6 +21,7 @@ interface StrategyPlanModalProps {
   hideRejectButton?: boolean;
   hidePrimaryButton?: boolean;
   reviewSummaryText?: string;
+  status?: 'open' | 'in_progress' | 'completed' | 'canceled';
   onCommentItem?: (itemId: string | undefined, itemText: string | undefined, text: string) => Promise<void> | void;
   onCompleteItem?: (itemId: string | undefined, itemText: string | undefined, done?: boolean) => Promise<void> | void;
   readOnly?: boolean;
@@ -81,6 +82,7 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
   hideRejectButton = false,
   hidePrimaryButton = false,
   reviewSummaryText,
+  status,
   onCommentItem,
   onCompleteItem,
   readOnly = false,
@@ -153,6 +155,17 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
 
   const hasRisks = plan.risks && plan.risks.trim().length > 0;
 
+  const statusLabel = status === 'open' ? 'Open' : status === 'in_progress' ? 'In progress' : status === 'canceled' ? 'Canceled' : status === 'completed' ? 'Completed' : null;
+  const statusClass = status === 'open'
+    ? 'border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300'
+    : status === 'in_progress'
+    ? 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300'
+    : status === 'canceled'
+    ? 'border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300'
+    : status === 'completed'
+    ? 'border-emerald-300 bg-emerald-100 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300'
+    : '';
+
   const buildRevisedPlan = (): StrategyPlan => {
     const pendingNewItem = newItem.trim();
     const revisedChecklist = items.map((item) => ({
@@ -173,8 +186,9 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
         <div className="flex items-start gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <div className="w-9 h-9 rounded-xl bg-indigo-500/20 flex items-center justify-center text-xl shrink-0">🧠</div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="truncate text-sm font-bold text-slate-900 dark:text-white">{plan.title ?? 'Execution Plan'}</h2>
+              {statusLabel && <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusClass}`}>{statusLabel}</span>}
               {hasRisks && <span className="shrink-0 rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">⚠ risks</span>}
             </div>
             <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{agentName} is requesting approval to proceed</p>

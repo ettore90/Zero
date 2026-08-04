@@ -341,7 +341,6 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
   const renderApprovalSurface = () => {
     if (selectedApproval?.source === 'pendingStrategyPlan' && selectedApproval.plan) {
       const approvalStatus = selectedApproval?.status as 'open' | 'in_progress' | 'canceled' | 'completed' | undefined;
-      const statusLabel = approvalStatus === 'open' ? 'Open' : approvalStatus === 'in_progress' ? 'In progress' : approvalStatus === 'canceled' ? 'Canceled' : approvalStatus === 'completed' ? 'Completed' : null;
       const canApprove = approvalStatus === 'open' && typeof selectedApproval.onApprove === 'function';
       const canCancel = typeof selectedApproval.onReject === 'function' && approvalStatus !== 'completed' && approvalStatus !== 'canceled';
       const isTerminalStatus = approvalStatus === 'completed' || approvalStatus === 'canceled';
@@ -353,21 +352,6 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
       return (
         <CanvasViewport className={isDarkTheme ? "bg-[#1e1e1e]" : "bg-white"}>
           <div className={`flex h-full min-h-0 min-w-0 flex-col ${isDarkTheme ? "bg-[#1e1e1e] text-slate-200" : "bg-white text-slate-700"}`}>
-            <div className={`flex items-center justify-between gap-3 border-b px-5 py-3 ${isDarkTheme ? "border-slate-800" : "border-slate-200"}`}>
-              <div className="min-w-0">
-                <div className={`text-[10px] font-black uppercase tracking-[0.24em] ${isDarkTheme ? "text-slate-500" : "text-slate-500"}`}>Strategy plan</div>
-                <div className={`mt-1 truncate text-sm font-semibold ${isDarkTheme ? "text-white" : "text-slate-900"}`}>{selectedApproval.title || 'Plan approval'}</div>
-              </div>
-              {statusLabel && (
-                <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${selectedApproval?.status === 'open'
-                  ? (isDarkTheme ? 'border-amber-500/20 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-100 text-amber-700')
-                  : selectedApproval?.status === 'in_progress'
-                  ? (isDarkTheme ? 'border-blue-500/20 bg-blue-500/10 text-blue-300' : 'border-blue-300 bg-blue-100 text-blue-700')
-                  : approvalStatus === 'canceled'
-                  ? (isDarkTheme ? 'border-rose-500/20 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-100 text-rose-700')
-                  : (isDarkTheme ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-emerald-300 bg-emerald-100 text-emerald-700')}`}>{statusLabel}</span>
-              )}
-            </div>
             <div className="min-h-0 flex-1 overflow-auto">
               <StrategyPlanModal
                 embedded
@@ -380,6 +364,7 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
                 hideRejectButton={!canCancel || isTerminalStatus || isInProgress}
                 hidePrimaryButton={!canShowPrimaryAction}
                 reviewSummaryText={approvalStatus === 'open' ? 'Awaiting decision.' : approvalStatus === 'in_progress' ? 'This plan is in progress and can be canceled.' : approvalStatus === 'canceled' ? 'This plan was canceled.' : 'This plan has been completed.'}
+                status={approvalStatus}
                 onCommentItem={canComment ? selectedApproval.onCommentItem : undefined}
                 onCompleteItem={typeof selectedApproval.onCompleteItem === 'function' ? selectedApproval.onCompleteItem : undefined}
                 readOnly={isTerminalStatus}
