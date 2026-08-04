@@ -967,9 +967,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [seenApprovalIds, setSeenApprovalIds] = React.useState<string[]>([]);
 const approvalItems = React.useMemo(() => {
     const items: ApprovalItem[] = [];
+    const activeSessionId = String((agent as any)?.activeSessionId || '').trim();
     const trackedPlans = Array.isArray(strategyPlanItems)
       ? strategyPlanItems
-          .filter((item: any) => item && item.agentId === agent.id)
+          .filter((item: any) => {
+            if (!item || item.agentId !== agent.id) return false;
+            const itemSessionId = String(item?.sessionId || '').trim();
+            if (!activeSessionId) return itemSessionId === '';
+            return itemSessionId === activeSessionId;
+          })
           .sort((a: any, b: any) => String(b?.updatedAt || '').localeCompare(String(a?.updatedAt || '')))
       : [];
 
@@ -1048,7 +1054,7 @@ const approvalItems = React.useMemo(() => {
     }
 
     return items;
-  }, [pendingApproval, pendingStrategyPlan, strategyPlanItems, agent.id, onMarkStrategyPlanCompleted, seenApprovalIds]);
+  }, [pendingApproval, pendingStrategyPlan, strategyPlanItems, agent.id, agent.activeSessionId, onMarkStrategyPlanCompleted, seenApprovalIds]);
 
   React.useEffect(() => {
     if (approvalItems.length === 0) {

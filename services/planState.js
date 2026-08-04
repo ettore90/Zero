@@ -1,5 +1,5 @@
 import { pendingApprovals } from './runtime.js';
-import { upsertPlan, getPlan, hydratePlanStore } from './planStore.js';
+import { upsertPlan, getPlan, hydratePlanStore, listPlans } from './planStore.js';
 import { broadcastToUser } from './streamBroker.js';
 
 const makeId = (prefix = 'id') => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -207,6 +207,10 @@ export function broadcastPlanUpdate(record) {
 
 export function getPersistedPlan(requestId) {
   return getPlan(requestId);
+}
+
+export function listPersistedPlans() {
+  return listPlans();
 }
 
 export function findLatestInProgressPlanForAgent({ username, agentId, sessionId }) {

@@ -50,20 +50,53 @@ export const useSessionManager = ({
 
     const handleNewSession = useCallback(async (agentId: string) => {
         const newSessionId = generateId();
-        await ServerChat.createSession(username, agentId, newSessionId, 'New Session');
-        await persistActiveSession(username, agentId, newSessionId);
-        await syncAgentsFromServer(username, setPersistedAgents);
+        const newSession = {
+            id: newSessionId,
+            title: 'New Session',
+            history: [],
+            summary: '',
+            lastModified: Date.now(),
+        };
+        setPersistedAgents((prev: Agent[]) => prev.map(agent => (
+            agent.id === agentId
+                ? {
+                    ...agent,
+                    activeSessionId: newSessionId,
+                    sessions: [...(agent.sessions ?? []), newSession],
+                }
+                : agent
+        )));
         setActiveAgentId(agentId);
         setViewMode('chat');
         setIsChatVisible(true);
+
+        try {
+            await ServerChat.createSession(username, agentId, newSessionId, 'New Session');
+            await persistActiveSession(username, agentId, newSessionId);
+            await syncAgentsFromServer(username, setPersistedAgents);
+        } catch (error) {
+            await syncAgentsFromServer(username, setPersistedAgents).catch(() => null);
+            throw error;
+        }
     }, [username, setPersistedAgents, setActiveAgentId, setViewMode, setIsChatVisible]);
 
     const handleSelectSession = useCallback(async (agentId: string, sessionId: string) => {
-        await persistActiveSession(username, agentId, sessionId);
-        await syncAgentsFromServer(username, setPersistedAgents);
+        setPersistedAgents((prev: Agent[]) => prev.map(agent => (
+            agent.id === agentId
+                ? { ...agent, activeSessionId: sessionId }
+                : agent
+        )));
         setActiveAgentId(agentId);
         setViewMode('chat');
         setIsChatVisible(true);
+
+        try {
+            await persistActiveSession(username, agentId, sessionId);
+            await syncAgentsFromServer(username, setPersistedAgents);
+        } catch (error) {
+            await syncAgentsFromServer(username, setPersistedAgents).catch(() => null);
+            throw error;
+        }
     }, [username, setPersistedAgents, setActiveAgentId, setViewMode, setIsChatVisible]);
 
     const handleRenameSession = useCallback(async (agentId: string, sessionId: string, title: string) => {

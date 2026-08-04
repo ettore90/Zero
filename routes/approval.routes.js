@@ -3,19 +3,61 @@ import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { pendingApprovals, approvalDecisions, approvalDeliveryQueue, runningAgentControllers } from '../services/runtime.js';
 import { broadcastToUser } from '../services/streamBroker.js';
 import { flushApprovalContinuationIfIdle } from '../services/llmService.js';
-import { normalizePlanForStorage, appendCommentToPlanItem, broadcastPlanUpdate, isPlausiblePlanPayload, validateCommentInput, persistPlanRecord, markPlanItemCompleted, finalizePlanIfComplete, normalizePlanStatus, isTerminalPlanStatus } from '../services/planState.js';
+import { normalizePlanForStorage, appendCommentToPlanItem, broadcastPlanUpdate, isPlausiblePlanPayload, validateCommentInput, persistPlanRecord, markPlanItemCompleted, finalizePlanIfComplete, normalizePlanStatus, isTerminalPlanStatus, listPersistedPlans } from '../services/planState.js';
 
 const router = Router();
 
 
 router.get('/approval/plans', checkLocalAccess, (_req, res) => {
-  const plans = pendingApprovals.size > 0
-    ? Array.from(pendingApprovals.values()).map((record) => ({
+  try {
+    const persistedPlans = listPersistedPlans();
+    const persistedByKey = new Map();
+
+    for (const record of persistedPlans) {
+      if (!record) continue;
+      const normalizedRecord = {
         ...record,
         plan: record.plan ?? record.payload ?? null,
-      }))
-    : [];
-  return res.json({ success: true, plans });
+      };
+      const planKey = typeof record.planKey === 'string' ? record.planKey.trim() : '';
+      const requestId = typeof record.requestId === 'string' ? record.requestId.trim() : '';
+      if (planKey) persistedByKey.set(planKey, normalizedRecord);
+      if (requestId) persistedByKey.set(requestId, normalizedRecord);
+      if (planKey) pendingApprovals.set(planKey, normalizedRecord);
+      if (requestId) pendingApprovals.set(requestId, normalizedRecord);
+    }
+
+    const missingPersisted = new Set();
+    for (const record of pendingApprovals.values()) {
+      const planKey = typeof record?.planKey === 'string' ? record.planKey.trim() : '';
+      const requestId = typeof record?.requestId === 'string' ? record.requestId.trim() : '';
+      if (!planKey && !requestId) {
+        missingPersisted.add('runtime-record-without-planKey-or-requestId');
+        continue;
+      }
+      if (planKey && !persistedByKey.has(planKey)) missingPersisted.add(planKey);
+      if (requestId && !persistedByKey.has(requestId)) missingPersisted.add(requestId);
+    }
+
+    if (missingPersisted.size > 0) {
+      return res.status(500).json({
+        success: false,
+        error: 'Found approval plans in runtime memory without persisted records',
+        missingPersisted: Array.from(missingPersisted),
+      });
+    }
+
+    const plans = persistedPlans.map((record) => ({
+      ...record,
+      plan: record.plan ?? record.payload ?? null,
+    }));
+    return res.json({ success: true, plans });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to load persisted approval plans',
+    });
+  }
 });
 
 

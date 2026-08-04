@@ -15,6 +15,7 @@ export interface StrategyPlanTrackingItem {
   requestId?: string;
   planKey?: string;
   approvalKey?: string;
+  sessionId?: string;
   source: 'strategyPlanTracking';
   status: StrategyPlanTrackingStatus;
   plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] };
@@ -48,6 +49,7 @@ export const useUIState = () => {
     requestId?: string;
     planKey?: string;
   approvalKey?: string;
+    sessionId?: string;
     plan: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] };
     signal?: AbortSignal;
     onApprove: (revisedPlan?: { title?: string; objective?: string; approach?: string; risks?: string; checklist?: any[] | string[] }) => void;

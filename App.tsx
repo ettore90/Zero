@@ -241,10 +241,11 @@ const App: React.FC = () => {
 
 
 
-    const mergePlanIntoTrackedItems = useCallback((requestId: string, plan: any, planKey?: string, statusOverride?: 'open' | 'in_progress' | 'completed' | 'canceled') => {
+    const mergePlanIntoTrackedItems = useCallback((requestId: string, plan: any, planKey?: string, statusOverride?: 'open' | 'in_progress' | 'completed' | 'canceled', sessionIdOverride?: string | null) => {
         const normalizedRequestId = String(requestId || '').trim();
         const normalizedPlanKey = String(planKey || '').trim();
         const normalizedApprovalKey = normalizedPlanKey || normalizedRequestId;
+        const normalizedSessionId = String(sessionIdOverride || '').trim();
         if (!normalizedRequestId && !normalizedPlanKey) return;
         const updatedAt = new Date().toISOString();
         setStrategyPlanItems((prev: any[]) => Array.isArray(prev) ? prev.map((item: any) => {
@@ -255,7 +256,7 @@ const App: React.FC = () => {
                 || String(item?.id || '').trim() === normalizedRequestId
                 || (!normalizedPlanKey && itemApprovalKey === normalizedApprovalKey);
             if (!matches) return item;
-            return { ...item, planKey: item?.planKey || normalizedPlanKey || normalizedApprovalKey, approvalKey: item?.approvalKey || normalizedApprovalKey, plan: plan && typeof plan === 'object' ? plan : item.plan, updatedAt, ...(statusOverride ? { status: statusOverride } : {}) };
+            return { ...item, planKey: item?.planKey || normalizedPlanKey || normalizedApprovalKey, approvalKey: item?.approvalKey || normalizedApprovalKey, ...(normalizedSessionId ? { sessionId: normalizedSessionId } : {}), plan: plan && typeof plan === 'object' ? plan : item.plan, updatedAt, ...(statusOverride ? { status: statusOverride } : {}) };
         }) : prev);
         setPendingStrategyPlan((prev: any) => {
             if (!prev) return prev;
@@ -266,7 +267,7 @@ const App: React.FC = () => {
                 || (!normalizedPlanKey && prevApprovalKey === normalizedApprovalKey)
                 || (!normalizedPlanKey && !prevPlanKey && prevApprovalKey === normalizedApprovalKey);
             return matches
-                ? { ...prev, planKey: prev?.planKey || normalizedPlanKey || normalizedApprovalKey, approvalKey: prev?.approvalKey || normalizedApprovalKey, plan: plan && typeof plan === 'object' ? plan : prev?.plan }
+                ? { ...prev, planKey: prev?.planKey || normalizedPlanKey || normalizedApprovalKey, approvalKey: prev?.approvalKey || normalizedApprovalKey, ...(normalizedSessionId ? { sessionId: normalizedSessionId } : {}), plan: plan && typeof plan === 'object' ? plan : prev?.plan }
                 : prev;
         });
     }, [setPendingStrategyPlan, setStrategyPlanItems]);
@@ -384,6 +385,7 @@ const App: React.FC = () => {
                         requestId,
                         planKey: String(record?.planKey || record?.approvalKey || requestId).trim(),
                         approvalKey: String(record?.approvalKey || record?.planKey || requestId).trim(),
+                        sessionId: String(record?.sessionId || '').trim() || undefined,
                         source: 'strategyPlanTracking',
                         status: derivedStatus,
                         plan,
@@ -681,12 +683,12 @@ const App: React.FC = () => {
                 }
                 const planStatus = event.planStatus || event.itemStatus || event.status || null;
                 if (event.requestId && event.plan) {
-                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined, planStatus === 'approved' ? 'in_progress' : planStatus === 'in_progress' ? 'in_progress' : planStatus === 'canceled' || planStatus === 'cancelled' || planStatus === 'rejected' ? 'canceled' : undefined);
+                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined, planStatus === 'approved' ? 'in_progress' : planStatus === 'in_progress' ? 'in_progress' : planStatus === 'canceled' || planStatus === 'cancelled' || planStatus === 'rejected' ? 'canceled' : undefined, event.sessionId || event.pendingApproval?.sessionId || null);
                 }
             } else if (event.type === 'approval:plan_updated') {
                 const planStatus = event.planStatus || event.itemStatus || event.status || null;
                 if (event.requestId && event.plan) {
-                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined, planStatus === 'completed' ? 'completed' : planStatus === 'in_progress' ? 'in_progress' : planStatus === 'canceled' || planStatus === 'cancelled' || planStatus === 'rejected' ? 'canceled' : undefined);
+                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined, planStatus === 'completed' ? 'completed' : planStatus === 'in_progress' ? 'in_progress' : planStatus === 'canceled' || planStatus === 'cancelled' || planStatus === 'rejected' ? 'canceled' : undefined, event.sessionId || event.pendingApproval?.sessionId || null);
                 }
             } else if (event.type === 'write_file_dry_run') {
                 sseHandlersRef.current.setPendingDryRun({
@@ -830,6 +832,7 @@ const App: React.FC = () => {
                     requestId: requestId || undefined,
                     planKey,
                     approvalKey: planKey,
+                    sessionId: String(data.sessionId || '').trim() || undefined,
                     source: 'strategyPlanTracking',
                     status: 'open',
                     plan: strategyPlan,
@@ -851,6 +854,7 @@ const App: React.FC = () => {
                 requestId: data.requestId,
                 planKey,
                 approvalKey: planKey,
+                sessionId: String(data.sessionId || '').trim() || undefined,
                 plan: strategyPlan,
                 onApprove: approvePlan,
                 onReject: cancelPlan,
