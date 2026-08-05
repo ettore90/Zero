@@ -125,10 +125,10 @@ const RightPanel: React.FC<RightPanelProps> = ({
                     aria-busy={isTogglingSessionNotes || undefined}
                     disabled={isTogglingSessionNotes}
                     onClick={() => onToggleSessionNotesEnabled?.(!notesEnabled)}
-                    className={`group relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-nebula-500 focus:ring-offset-1 focus:ring-offset-slate-100 dark:focus:ring-offset-[#151618] ${notesEnabled ? 'border-nebula-500 bg-nebula-500/90' : 'border-slate-300 bg-slate-300 dark:border-slate-700 dark:bg-slate-700'} ${isTogglingSessionNotes ? 'cursor-wait opacity-70' : 'cursor-pointer'}`}
+                    className={`group relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-nebula-500 focus:ring-offset-1 focus:ring-offset-white dark:focus:ring-offset-[#151618] ${notesEnabled ? 'border-nebula-500 bg-nebula-500 shadow-[0_0_0_1px_rgba(255,255,255,0.12)] dark:border-nebula-400 dark:bg-nebula-500/95 dark:shadow-[0_0_0_1px_rgba(0,0,0,0.28)]' : 'border-slate-300 bg-slate-200 hover:bg-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600'} ${isTogglingSessionNotes ? 'cursor-wait opacity-70' : 'cursor-pointer'}`}
                   >
                     <span className="sr-only">Toggle session notes</span>
-                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ${notesEnabled ? 'translate-x-5' : 'translate-x-0.5'} ${isTogglingSessionNotes ? 'scale-95' : ''}`} />
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 dark:bg-slate-100 ${notesEnabled ? 'translate-x-5' : 'translate-x-0.5'} ${isTogglingSessionNotes ? 'scale-95' : ''}`} />
                   </button>
                 </div>
                 <button
