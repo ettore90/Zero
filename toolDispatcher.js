@@ -185,6 +185,32 @@ function listNotesGloballyForUser(sessionStore, username) {
     return sortNotesByUpdatedAtDesc(collected);
 }
 
+
+function areSessionNotesEnabled(session) {
+    if (!session || typeof session !== 'object') return false;
+    if (session.notesEnabled === true) return true;
+    if (session.notesEnabled === false) return false;
+    const hasLegacyNotes = getSessionNotes(session).length > 0 || String(session.activeNoteId || session.active_note || '').trim().length > 0;
+    return hasLegacyNotes;
+}
+
+function buildNotesDisabledError(sessionId = null) {
+    return {
+        error: 'Notes tools are disabled for this session',
+        sessionId: sessionId || null,
+        notesEnabled: false,
+    };
+}
+
+function resolveNotesToolSession(sessionStore, username, agentId, requestedSessionId) {
+    const resolved = resolveSessionNoteTargetSession(sessionStore, username, agentId, requestedSessionId);
+    if (resolved.error) return resolved;
+    const session = resolved.session || (sessionStore?.getSession ? sessionStore.getSession(resolved.sessionId) : null);
+    if (!session) return { error: 'Session not found' };
+    if (String(session.username) !== String(username)) return { error: 'Forbidden' };
+    return { sessionId: resolved.sessionId || session.id, session };
+}
+
 function persistAndBroadcastSessionNoteChange({ sessionStore, session, username, event = {} }) {
     if (sessionStore?.saveSession) sessionStore.saveSession(session);
     const payload = {
@@ -631,7 +657,30 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
     }
 
 
+    if (toolName === 'set_session_notes_enabled') {
+        const resolved = resolveNotesToolSession(sessionStore, username, agentId, args.sessionId);
+        if (resolved.error) return { error: resolved.error };
+        const { sessionId, session } = resolved;
+        session.notesEnabled = args.enabled === true;
+        if (sessionStore?.saveSession) sessionStore.saveSession(session);
+        broadcastToUser(session.username || username, 'session_updated', {
+            sessionId: String(sessionId || session.id || ''),
+            notesEnabled: session.notesEnabled === true,
+            operation: 'notes_tools_toggled',
+        });
+        return {
+            success: true,
+            sessionId: String(sessionId || session.id || ''),
+            enabled: session.notesEnabled === true,
+            updatedAt: session.updatedAt || Date.now(),
+        };
+    }
+
+
     if (toolName === 'read_note') {
+        const access = resolveNotesToolSession(sessionStore, username, agentId, args.sessionId);
+        if (access.error) return { error: access.error };
+        if (!areSessionNotesEnabled(access.session)) return buildNotesDisabledError(access.sessionId);
         const requestedId = String(args.noteId || '').trim();
         const requestsActiveAlias = requestedId === 'active_note' || requestedId === 'active-note' || requestedId === 'active';
 
@@ -696,6 +745,9 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
     }
 
     if (toolName === 'write_note') {
+        const access = resolveNotesToolSession(sessionStore, username, agentId, args.sessionId);
+        if (access.error) return { error: access.error };
+        if (!areSessionNotesEnabled(access.session)) return buildNotesDisabledError(access.sessionId);
         if (Object.prototype.hasOwnProperty.call(args || {}, 'content')) {
             return { error: 'write_note no longer accepts `content`; use `contentHtml` instead' };
         }
@@ -847,6 +899,9 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
     }
 
     if (toolName === 'delete_note') {
+        const access = resolveNotesToolSession(sessionStore, username, agentId, args.sessionId);
+        if (access.error) return { error: access.error };
+        if (!areSessionNotesEnabled(access.session)) return buildNotesDisabledError(access.sessionId);
         const resolved = resolveSessionNoteTargetSession(sessionStore, username, agentId, args.sessionId);
         if (resolved.error) return { error: resolved.error };
         const session = resolved.session || (sessionStore?.getSession ? sessionStore.getSession(resolved.sessionId) : null);
@@ -880,6 +935,9 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
     }
 
     if (toolName === 'list_notes') {
+        const access = resolveNotesToolSession(sessionStore, username, agentId, args.sessionId);
+        if (access.error) return { error: access.error };
+        if (!areSessionNotesEnabled(access.session)) return buildNotesDisabledError(access.sessionId);
         const requestedSessionId = String(args.sessionId || '').trim();
         const limit = Number.parseInt(args.limit, 10);
         const cursor = Number.parseInt(args.cursor, 10);
@@ -930,6 +988,9 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
     }
 
     if (toolName === 'set_active_note') {
+        const access = resolveNotesToolSession(sessionStore, username, agentId, args.sessionId);
+        if (access.error) return { error: access.error };
+        if (!areSessionNotesEnabled(access.session)) return buildNotesDisabledError(access.sessionId);
         const resolved = resolveSessionNoteTargetSession(sessionStore, username, agentId, args.sessionId);
         if (resolved.error) return { error: resolved.error };
         const session = resolved.session || (sessionStore?.getSession ? sessionStore.getSession(resolved.sessionId) : null);

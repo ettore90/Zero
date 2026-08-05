@@ -27,6 +27,8 @@ export interface RightPanelProps {
   sessionNotes?: RightPanelSessionNote[];
   approvals?: RightPanelApprovalItem[];
   activeNoteId?: string | null;
+  notesEnabled?: boolean;
+  isTogglingSessionNotes?: boolean;
   activeApprovalId?: string | null;
   projects?: Project[];
   activeProjectId?: string | null;
@@ -41,6 +43,7 @@ export interface RightPanelProps {
   onDismissDraft?: () => void;
   activeAgentId?: string;
   onCreateSessionNote: () => void;
+  onToggleSessionNotesEnabled?: (enabled: boolean) => void | Promise<void>;
   onOpenSessionNote?: (noteId: string, noteSessionId?: string | null) => void;
   onOpenApproval?: (id: string) => void;
   onCollapseCanvas?: () => void;
@@ -55,6 +58,8 @@ const RightPanel: React.FC<RightPanelProps> = ({
   sessionNotes = [],
   approvals = [],
   activeNoteId = null,
+  notesEnabled = false,
+  isTogglingSessionNotes = false,
   activeApprovalId = null,
   projects = [],
   activeProjectId = null,
@@ -69,6 +74,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
   onDismissDraft,
   activeAgentId,
   onCreateSessionNote,
+  onToggleSessionNotesEnabled,
   onOpenSessionNote,
   onOpenApproval,
   onCollapseCanvas,
@@ -109,17 +115,34 @@ const RightPanel: React.FC<RightPanelProps> = ({
           {isSessionNotesOpen ? (
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 px-3 py-2">
-                <div className="text-xs font-medium text-slate-700 dark:text-slate-300">Session notes</div>
+                <div className="flex items-center gap-3">
+                  <div className="text-xs font-medium text-slate-700 dark:text-slate-300">Session notes</div>
+                  <label className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                    <span>{isTogglingSessionNotes ? 'Saving' : 'Enabled'}</span>
+                    <input
+                      type="checkbox"
+                      checked={notesEnabled}
+                      disabled={isTogglingSessionNotes}
+                      onChange={(event) => onToggleSessionNotesEnabled?.(event.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-slate-300 text-nebula-500 focus:ring-nebula-500 dark:border-slate-700 dark:bg-slate-900"
+                    />
+                  </label>
+                </div>
                 <button
                   onClick={onCreateSessionNote}
-                  className="rounded bg-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600"
+                  disabled={!notesEnabled || isTogglingSessionNotes}
+                  className={`rounded px-2 py-1 text-[10px] font-semibold ${notesEnabled ? 'bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600' : 'cursor-not-allowed bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'}`}
                   type="button"
                 >
                   New
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                {sessionNotes.length === 0 ? (
+                {!notesEnabled ? (
+                  <div className="rounded border border-dashed border-slate-300 p-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                    Notes tools are disabled for this session. Enable them to create or open notes.
+                  </div>
+                ) : sessionNotes.length === 0 ? (
                   <div className="rounded border border-dashed border-slate-300 p-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
                     No session notes yet.
                   </div>

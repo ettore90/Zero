@@ -37,7 +37,7 @@ export interface ServerChatOptions {
 // Session API helpers
 // ---------------------------------------------------------------------------
 
-export async function loadSession(sessionId: string, username: string): Promise<{ messages: Message[]; title: string; summary: string; notes?: any[]; activeNoteId?: string | null; note?: any } | null> {
+export async function loadSession(sessionId: string, username: string): Promise<{ messages: Message[]; title: string; summary: string; notes?: any[]; activeNoteId?: string | null; note?: any; notesEnabled?: boolean } | null> {
     try {
         const res = await fetch(`${LOCAL_BASE}/api/sessions/${encodeURIComponent(sessionId)}?username=${encodeURIComponent(username)}`);
         if (!res.ok) return null;
@@ -55,6 +55,7 @@ export async function loadSession(sessionId: string, username: string): Promise<
             notes,
             activeNoteId,
             note: activeNote,
+            notesEnabled: session.notesEnabled === true,
         };
     } catch {
         return null;
@@ -96,6 +97,24 @@ export async function readNote(username: string, noteId: string, sessionId?: str
     } catch {
         return { note: null, noteId: null, sessionId: sessionId ?? null };
     }
+}
+
+
+export async function setSessionNotesEnabled(sessionId: string, username: string, enabled: boolean): Promise<{ success: boolean; sessionId: string | null; notesEnabled: boolean; session?: any }> {
+    const path = `/api/sessions/${encodeURIComponent(sessionId)}/notes-enabled`;
+    const res = await fetch(`${LOCAL_BASE}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, enabled }),
+    });
+    await ensureOk(res, 'POST', path);
+    const payload = await res.json();
+    return {
+        success: Boolean(payload?.success),
+        sessionId: typeof payload?.sessionId === 'string' ? payload.sessionId : sessionId,
+        notesEnabled: payload?.notesEnabled === true,
+        session: payload?.session || null,
+    };
 }
 
 export async function setActiveSessionNote(sessionId: string, username: string, noteId: string): Promise<{ success: boolean; activeNoteId: string | null; sessionId: string | null }> {

@@ -37,6 +37,14 @@ function serializeNoteListItem(note, sessionId) {
   };
 }
 
+function areSessionNotesEnabled(session) {
+  if (!session || typeof session !== 'object') return false;
+  if (session.notesEnabled === true) return true;
+  if (session.notesEnabled === false) return false;
+  const notes = Array.isArray(session.notes) ? session.notes.filter(Boolean) : [];
+  return notes.length > 0 || String(session.activeNoteId || session.active_note || '').trim().length > 0;
+}
+
 function findNoteById(session, noteId) {
   return getSessionNoteList(session).find((note) => String(note?.noteId || note?.id || '') === String(noteId || '')) || null;
 }
@@ -60,6 +68,7 @@ router.get('/sessions', checkLocalAccess, (req, res) => {
         updatedAt: s.updatedAt,
         lastModified: s.updatedAt,
         activeNoteId: s.activeNoteId || null,
+        notesEnabled: areSessionNotesEnabled(s),
         noteVersion: activeNote?.version || 0,
         noteUpdatedAt: activeNote?.updatedAt || null,
         noteUpdatedBy: activeNote?.updatedBy || null,
@@ -144,7 +153,7 @@ router.get('/sessions/:id', checkLocalAccess, (req, res) => {
   if (!username) return res.status(401).json({ error: 'username required' });
   const session = sessionStore.getSession(req.params.id);
   if (!assertSessionOwnership(session, username, res)) return;
-  return res.json({ session });
+  return res.json({ session: session ? { ...session, notesEnabled: areSessionNotesEnabled(session) } : session });
 });
 
 router.post('/sessions', checkLocalAccess, (req, res) => {
@@ -167,6 +176,19 @@ router.post('/sessions', checkLocalAccess, (req, res) => {
   if (activeNoteId !== undefined) session.activeNoteId = activeNoteId;
   sessionStore.saveSession(session);
   return res.json({ success: true, session });
+});
+
+
+router.post('/sessions/:id/notes-enabled', checkLocalAccess, (req, res) => {
+  const username = resolveScopedUsername(req);
+  const { enabled } = req.body || {};
+  if (!username) return res.status(401).json({ error: 'username required' });
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled boolean required' });
+  const session = sessionStore.getSession(req.params.id);
+  if (!assertSessionOwnership(session, username, res)) return;
+  session.notesEnabled = enabled;
+  sessionStore.saveSession(session);
+  return res.json({ success: true, sessionId: session.id, notesEnabled: session.notesEnabled === true, session: { ...session, notesEnabled: session.notesEnabled === true } });
 });
 
 router.post('/sessions/:id/active-note', checkLocalAccess, (req, res) => {

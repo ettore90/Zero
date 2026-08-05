@@ -788,12 +788,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isCanvasSessionNotesSectionOpen, setIsCanvasSessionNotesSectionOpen] = useState(false);
   const [isCanvasApprovalsSectionOpen, setIsCanvasApprovalsSectionOpen] = useState(false);
   const sessionNoteLoadKeyRef = useRef<string | null>(null);
+  const [sessionNotesEnabled, setSessionNotesEnabled] = useState(false);
+  const [isTogglingSessionNotes, setIsTogglingSessionNotes] = useState(false);
 
   const sessionNoteSyncPort: SessionNoteSyncPort = useMemo(() => ({
     loadSession: async (sessionId: string, currentUsername: string) => {
       const session = await ServerChat.loadSession(sessionId, currentUsername);
       const noteList = await ServerChat.listNotes(currentUsername, sessionId).catch(() => null);
       const notes = Array.isArray(noteList?.notes) ? noteList.notes : [];
+      if (session) setSessionNotesEnabled(session.notesEnabled === true);
       return session ? {
         ...session,
         notes,
@@ -828,6 +831,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     sessionNoteRemoteRefreshKey,
   });
 
+
+  useEffect(() => {
+    const nextEnabled = (sessionSnapshot as any)?.notesEnabled;
+    if (typeof nextEnabled === 'boolean') {
+      setSessionNotesEnabled(nextEnabled === true);
+    }
+  }, [sessionSnapshot]);
+
   const railSessionNotes = useMemo<RailSessionNoteItem[]>(() => Array.isArray(sessionSnapshot.notes)
     ? sessionSnapshot.notes.map((note) => ({
         id: String(note.id || note.noteId || ''),
@@ -837,6 +848,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         contentHtml: typeof note.contentHtml === 'string' ? note.contentHtml : null,
       }))
     : [], [sessionSnapshot.notes]);
+
+
+  const handleToggleSessionNotesEnabled = useCallback(async (enabled: boolean) => {
+    const sessionId = String(agent.activeSessionId || '').trim();
+    if (!sessionId || isTogglingSessionNotes) return;
+    const previous = sessionNotesEnabled;
+    setSessionNotesEnabled(enabled);
+    setIsTogglingSessionNotes(true);
+    try {
+      const result = await ServerChat.setSessionNotesEnabled(sessionId, username, enabled);
+      setSessionNotesEnabled(result.notesEnabled === true);
+    } catch (error) {
+      setSessionNotesEnabled(previous);
+      console.error('Failed to toggle session notes:', error);
+      window.alert(`Failed to ${enabled ? 'enable' : 'disable'} notes for this session.`);
+    } finally {
+      setIsTogglingSessionNotes(false);
+    }
+  }, [agent.activeSessionId, isTogglingSessionNotes, sessionNotesEnabled, username]);
 
   const clearCanvasRailSelection = useCallback(() => {
     setIsCanvasProjectTreeSectionOpen(false);
@@ -1072,6 +1102,8 @@ const approvalItems = React.useMemo(() => {
   const shellActions = {
     onEditAgent: onEditAgent ?? (() => {}),
     onCreateSessionNote: handleCreateSessionNote,
+    onToggleSessionNotesEnabled: handleToggleSessionNotesEnabled,
+    isTogglingSessionNotes,
     onCreateScratchTab: handleCreateScratchTab,
     onSelectProject,
   onAddProject,
@@ -1119,6 +1151,8 @@ const approvalItems = React.useMemo(() => {
         sessionNotes={railSessionNotes}
         approvals={approvalItems}
         activeNoteId={sessionSnapshot.activeNoteId ?? null}
+        notesEnabled={sessionNotesEnabled}
+        isTogglingSessionNotes={isTogglingSessionNotes}
         activeApprovalId={activeApprovalId}
         selectedApproval={approvalItems.find((item) => item.id === activeApprovalId) ?? null}
         projects={projects}

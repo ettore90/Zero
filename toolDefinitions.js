@@ -795,6 +795,24 @@ export const SYSTEM_TOOLS = [
       },
     },
   },
+
+  {
+    type: 'function',
+    group: 'Notes',
+    function: {
+      name: 'set_session_notes_enabled',
+      callableBy: ['workflow', 'llm', 'agent'],
+      description: 'Enable or disable notes tools for a session. When disabled, notes tools are blocked for that session until re-enabled. sessionId accepts dispatcher aliases current and active.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sessionId: { type: 'string', description: 'Session identifier; dispatcher aliases current and active are accepted.' },
+          enabled: { type: 'boolean', description: 'Whether notes tools should be enabled for the session.' },
+        },
+        required: ['sessionId', 'enabled'],
+      },
+    },
+  },
   // ---------------------------------------------------------------------------
   // MEMORY
   // ---------------------------------------------------------------------------

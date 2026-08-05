@@ -22,6 +22,8 @@ export interface ChatCanvasShellProps {
   sessionNotes?: Array<{ id: string; noteId?: string | null; sessionId?: string | null; title?: string | null; contentHtml?: string | null }>;
   approvals?: Array<{ id: string; title?: string | null }>;
   activeNoteId?: string | null;
+  notesEnabled?: boolean;
+  isTogglingSessionNotes?: boolean;
   selectedApproval?: { id: string; title?: string | null; toolCalls?: any[]; sensitiveCalls?: any[]; source?: string } | null;
   activeApprovalId?: string | null;
   projects?: Project[];
@@ -34,6 +36,7 @@ export interface ChatCanvasShellProps {
   shellActions: {
     onEditAgent: () => void;
     onCreateSessionNote: () => void;
+    onToggleSessionNotesEnabled?: (enabled: boolean) => void | Promise<void>;
     onCreateScratchTab: () => void;
     onSelectProject?: (id: string) => void;
     onAddProject?: (project: Project) => void;
@@ -66,6 +69,8 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
   sessionNotes = [],
   approvals = [],
   activeNoteId = null,
+  notesEnabled = false,
+  isTogglingSessionNotes = false,
   selectedApproval = null,
   activeApprovalId = null,
   projects = [],
@@ -85,6 +90,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
   const {
     onEditAgent,
     onCreateSessionNote,
+    onToggleSessionNotesEnabled,
     onCreateScratchTab,
     onSelectProject,
     onAddProject,
@@ -258,6 +264,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       sessionNotes={orderedSessionNotes}
       approvals={normalizedApprovals}
       activeNoteId={activeNoteId}
+      notesEnabled={notesEnabled}
       activeApprovalId={activeApprovalId}
       projects={projects}
       activeProjectId={activeProjectId}
@@ -272,6 +279,8 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       onDismissDraft={onDismissDraft}
       activeAgentId={agent.id}
       onCreateSessionNote={onCreateSessionNote}
+      onToggleSessionNotesEnabled={onToggleSessionNotesEnabled}
+      isTogglingSessionNotes={isTogglingSessionNotes}
       onOpenSessionNote={handleOpenSessionNoteFromRail}
       onOpenApproval={handleOpenApprovalFromRail}
       onCollapseCanvas={canvas.toggleCanvas}
