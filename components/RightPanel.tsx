@@ -117,16 +117,19 @@ const RightPanel: React.FC<RightPanelProps> = ({
               <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 px-3 py-2">
                 <div className="flex items-center gap-3">
                   <div className="text-xs font-medium text-slate-700 dark:text-slate-300">Session notes</div>
-                  <label className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                    <span>{isTogglingSessionNotes ? 'Saving' : 'Enabled'}</span>
-                    <input
-                      type="checkbox"
-                      checked={notesEnabled}
-                      disabled={isTogglingSessionNotes}
-                      onChange={(event) => onToggleSessionNotesEnabled?.(event.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-slate-300 text-nebula-500 focus:ring-nebula-500 dark:border-slate-700 dark:bg-slate-900"
-                    />
-                  </label>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={notesEnabled}
+                    aria-label={notesEnabled ? 'Disable session notes' : 'Enable session notes'}
+                    aria-busy={isTogglingSessionNotes || undefined}
+                    disabled={isTogglingSessionNotes}
+                    onClick={() => onToggleSessionNotesEnabled?.(!notesEnabled)}
+                    className={`group relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-nebula-500 focus:ring-offset-1 focus:ring-offset-slate-100 dark:focus:ring-offset-[#151618] ${notesEnabled ? 'border-nebula-500 bg-nebula-500/90' : 'border-slate-300 bg-slate-300 dark:border-slate-700 dark:bg-slate-700'} ${isTogglingSessionNotes ? 'cursor-wait opacity-70' : 'cursor-pointer'}`}
+                  >
+                    <span className="sr-only">Toggle session notes</span>
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ${notesEnabled ? 'translate-x-5' : 'translate-x-0.5'} ${isTogglingSessionNotes ? 'scale-95' : ''}`} />
+                  </button>
                 </div>
                 <button
                   onClick={onCreateSessionNote}
