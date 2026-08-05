@@ -608,11 +608,17 @@ const AgentManager: React.FC<AgentManagerProps> = ({
               </p>
             </div>
           </div>
-          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end">
+            <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <button type="submit" form="agent-manager-form"
+              className="px-4 py-2 text-sm font-medium text-white bg-nebula-600 hover:bg-nebula-700 rounded-lg shadow-sm transition-colors">
+              {agent ? 'Save Changes' : 'Create Agent'}
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -632,7 +638,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+        <form id="agent-manager-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-4 md:p-6">
 
             {/* Tab: General */}
@@ -1125,10 +1131,6 @@ const AgentManager: React.FC<AgentManagerProps> = ({
             <button type="button" onClick={onCancel}
               className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
               Cancel
-            </button>
-            <button type="submit"
-              className="px-5 py-2 text-sm font-medium text-white bg-nebula-600 hover:bg-nebula-700 rounded-lg shadow-sm transition-colors">
-              {agent ? 'Save Changes' : 'Create Agent'}
             </button>
           </div>
         </form>
