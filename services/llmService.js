@@ -1367,7 +1367,7 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
   // Ephemeral summary/text-only runs must not receive tools, but isolated subagent sandboxes must.
   const tools = (isEphemeral && !sandboxMode) ? [] : (externalTools || buildAgentTools(username, agentId));
   const NOTE_TOOL_NAMES = new Set(['list_notes', 'read_note', 'write_note', 'delete_note', 'set_active_note']);
-  const sessionForTools = sessionId ? state?.sessions?.find?.((s) => String(s?.id || '') === String(sessionId)) || null : null;
+  const sessionForTools = sessionId ? sessionStore.getSession(String(sessionId)) || null : null;
   const sessionNotesEnabled = (() => {
     const session = sessionForTools;
     if (!session || typeof session !== 'object') return false;
