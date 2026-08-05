@@ -13,6 +13,7 @@ import { withExclusiveFileLock, atomicWriteJson } from '../utils/fileLock.js';
 import { readFileSafe, writeFileSafe } from '../utils/fs.js';
 import { escapeShellArg, splitCommand } from '../utils/ssh.js';
 import { sessionStore, pendingApprovals, approvalDecisions, approvalDeliveryQueue, runningAgentControllers, approvalFlushInFlight, globalCircuitBreaker } from './runtime.js';
+import { isToolAllowedForSession } from './toolAccessPolicy.js';
 import { normalizePlanForStorage, persistPlanRecord } from './planState.js';
 import { broadcastToUser } from './streamBroker.js';
 import { createSubagentAudit, appendSubagentAuditLog, finalizeSubagentAudit, serializeJson } from './subagentAuditService.js';
@@ -1365,23 +1366,15 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
   const delegatedMasterMode = sandboxMode && delegatedAgentRole === 'master';
   const disableSessionPersistence = sandboxMode && (sandbox?.disableSessionPersistence === true || delegatedMasterMode);
   // Ephemeral summary/text-only runs must not receive tools, but isolated subagent sandboxes must.
+  const effectiveSessionId = !isEphemeral
+    ? (sessionId || agent?.activeSessionId || `session-${agentId}-default`)
+    : null;
   const tools = (isEphemeral && !sandboxMode) ? [] : (externalTools || buildAgentTools(username, agentId));
-  const NOTE_TOOL_NAMES = new Set(['list_notes', 'read_note', 'write_note', 'delete_note', 'set_active_note']);
-  const sessionForTools = sessionId ? sessionStore.getSession(String(sessionId)) || null : null;
-  const sessionNotesEnabled = (() => {
-    const session = sessionForTools;
-    if (!session || typeof session !== 'object') return false;
-    if (session.notesEnabled === true) return true;
-    if (session.notesEnabled === false) return false;
-    const notes = Array.isArray(session.notes) ? session.notes.filter((note) => note && typeof note === 'object') : [];
-    return notes.length > 0 || String(session.activeNoteId || session.active_note || '').trim().length > 0;
-  })();
+  const sessionForTools = effectiveSessionId ? sessionStore.getSession(String(effectiveSessionId)) || null : null;
   const providerTools = tools.filter((tool) => {
     const toolName = String(tool?.function?.name || '').trim();
     if (!toolName) return false;
-    if (toolName === 'set_session_notes_enabled') return true;
-    if (!NOTE_TOOL_NAMES.has(toolName)) return true;
-    return sessionNotesEnabled;
+    return isToolAllowedForSession(toolName, sessionForTools);
   });
 
   let history = Array.isArray(messages) ? messages.map((m) => ({ ...m })) : [];
@@ -1877,9 +1870,7 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
     }
   };
 
-  const targetSessionId = !isEphemeral
-    ? (sessionId || agent?.activeSessionId || `session-${agentId}-default`)
-    : null;
+  const targetSessionId = effectiveSessionId;
 
 
   const queueApprovalContinuationIfNeeded = () => {

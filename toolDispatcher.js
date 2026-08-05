@@ -23,6 +23,7 @@ import { editSessionNoteLocalized, normalizeSessionNote, hasSessionNoteTarget, r
 import { broadcastToUser } from './services/streamBroker.js';
 import { pendingApprovals } from './services/runtime.js';
 import { appendCommentToPlanItem, broadcastPlanUpdate, findLatestInProgressPlanForAgent, markPlanItemCompleted, normalizePlanForStorage } from './services/planState.js';
+import { areSessionNotesEnabled } from './services/toolAccessPolicy.js';
 
 const ISOLATED_SUBAGENT_MAX_ITERATIONS = 20;
 const ISOLATED_SUBAGENT_TOOL_HEAVY_DEFAULT_ITERATIONS = 20;
@@ -185,14 +186,6 @@ function listNotesGloballyForUser(sessionStore, username) {
     return sortNotesByUpdatedAtDesc(collected);
 }
 
-
-function areSessionNotesEnabled(session) {
-    if (!session || typeof session !== 'object') return false;
-    if (session.notesEnabled === true) return true;
-    if (session.notesEnabled === false) return false;
-    const hasLegacyNotes = getSessionNotes(session).length > 0 || String(session.activeNoteId || session.active_note || '').trim().length > 0;
-    return hasLegacyNotes;
-}
 
 function buildNotesDisabledError(sessionId = null) {
     return {
