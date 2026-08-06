@@ -247,44 +247,53 @@ function collectReasoningText(value, seen = new Set()) {
   if (typeof value !== 'object') return '';
   seen.add(value);
 
+  const type = typeof value.type === 'string' ? value.type : '';
+  const isReasoningType = ['reasoning', 'reasoning_content', 'thinking'].includes(type);
+  if (!isReasoningType) return '';
+
   const segments = [];
   const add = (candidate) => {
     const text = collectReasoningText(candidate, seen);
     if (text) segments.push(text);
   };
+  const addText = (candidate) => {
+    if (typeof candidate === 'string') segments.push(candidate);
+  };
 
-  const directKeys = ['reasoning', 'reasoning_content', 'reasoningText', 'thinking'];
-  for (const key of directKeys) {
-    if (value[key] != null) add(value[key]);
-  }
+  addText(value.text);
+  addText(value.reasoning);
+  addText(value.reasoningText);
 
-  if (typeof value.text === 'string') segments.push(value.text);
-  if (typeof value.content === 'string') segments.push(value.content);
-  if (typeof value.message === 'string') segments.push(value.message);
-
-  if (Array.isArray(value.content)) add(value.content);
-  if (Array.isArray(value.parts)) add(value.parts);
-  if (Array.isArray(value.output)) add(value.output);
-  if (Array.isArray(value.items)) add(value.items);
-
-  if (value.output != null && !Array.isArray(value.output) && typeof value.output === 'object') add(value.output);
-
-  if (typeof value === 'object') {
-    if (value.type === 'reasoning' && typeof value.text === 'string') segments.push(value.text);
-    if (value.type === 'reasoning' && typeof value.content === 'string') segments.push(value.content);
-    if (value.type === 'reasoning' && value.reasoning != null) add(value.reasoning);
-    if (value.type === 'reasoning' && value.thinking != null) add(value.thinking);
-    if (value.type === 'reasoning_content' && typeof value.text === 'string') segments.push(value.text);
-    if (value.type === 'text' && typeof value.text === 'string') segments.push(value.text);
-    if (value.type === 'output_text' && typeof value.text === 'string') segments.push(value.text);
-    if (value.type === 'message' && value.content != null) add(value.content);
-    if (Array.isArray(value.output)) {
-      for (const item of value.output) {
-        if (item && typeof item === 'object' && (item.type === 'reasoning' || item.reasoning != null || item.thinking != null || item.reasoning_content != null || item.reasoningText != null)) {
-          add(item);
-        }
+  const content = value.content;
+  if (typeof content === 'string') addText(content);
+  else if (Array.isArray(content)) {
+    for (const item of content) {
+      if (item && typeof item === 'object' && ['reasoning', 'reasoning_content', 'thinking'].includes(item.type)) {
+        add(item);
       }
     }
+  }
+
+  const parts = value.parts;
+  if (Array.isArray(parts)) {
+    for (const item of parts) {
+      if (item && typeof item === 'object' && ['reasoning', 'reasoning_content', 'thinking'].includes(item.type)) {
+        add(item);
+      }
+    }
+  }
+
+  const output = value.output;
+  if (Array.isArray(output)) {
+    for (const item of output) {
+      if (item && typeof item === 'object' && ['reasoning', 'reasoning_content', 'thinking'].includes(item.type)) {
+        add(item);
+      }
+    }
+  }
+
+  if (typeof value.thinking === 'object' && value.thinking && ['reasoning', 'reasoning_content', 'thinking'].includes(value.thinking.type)) {
+    add(value.thinking);
   }
 
   return segments.map((segment) => asText(segment)).filter(Boolean).join('');
