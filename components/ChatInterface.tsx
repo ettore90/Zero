@@ -252,6 +252,12 @@ const MessageItem = memo(({ msg, isGenerating, isLast }: { msg: Message; isGener
         ) : (
           <>
             {msg.content && <ThoughtRenderer content={msg.content} isUser={isUser} />}
+            {!isUser && Number(msg.reasoningTokens || 0) > 0 && (
+              <div className="mt-3 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                <span className="uppercase tracking-wider">Reasoning tokens</span>
+                <span className="font-black text-slate-700 dark:text-slate-200">{Number(msg.reasoningTokens).toLocaleString()}</span>
+              </div>
+            )}
             {isActionOnly && (
               <div className="flex items-center gap-2 text-slate-400 dark:text-slate-500 italic text-xs py-1">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">

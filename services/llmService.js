@@ -1483,7 +1483,7 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
   let toolCallCount = 0;
   let forcedFinalizationAttempted = false;
   let loopTerminationReason = 'completed';
-  const accumulatedUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  const accumulatedUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, reasoning_tokens: 0 };
   const repeatedToolGuard = new Map();
   const sandboxAudit = sandboxMode
     ? createSubagentAudit({
@@ -2200,6 +2200,7 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
                 accumulatedUsage.prompt_tokens     += parsed.usage.prompt_tokens     || 0;
                 accumulatedUsage.completion_tokens += parsed.usage.completion_tokens || 0;
                 accumulatedUsage.total_tokens      += parsed.usage.total_tokens      || 0;
+                accumulatedUsage.reasoning_tokens  += parsed.usage?.completion_tokens_details?.reasoning_tokens || parsed.usage?.reasoning_tokens || 0;
               }
               const delta = parsed.choices?.[0]?.delta;
               if (!delta) continue;
@@ -2297,6 +2298,7 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
                 accumulatedUsage.prompt_tokens     += json.usage.prompt_tokens     || 0;
                 accumulatedUsage.completion_tokens += json.usage.completion_tokens || 0;
                 accumulatedUsage.total_tokens      += json.usage.total_tokens      || 0;
+                accumulatedUsage.reasoning_tokens  += json.usage?.completion_tokens_details?.reasoning_tokens || json.usage?.reasoning_tokens || 0;
               }
             }
           } catch {}
@@ -2474,6 +2476,7 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
 
       if (shouldPersistAssistantMessage) {
         const assistantMsg = { role: 'assistant', content: fullContent || null };
+        if (accumulatedUsage.reasoning_tokens > 0) assistantMsg.reasoningTokens = accumulatedUsage.reasoning_tokens;
         if (toolCalls.length > 0) assistantMsg.tool_calls = toolCalls;
         inFlightAssistantMessage = assistantMsg;
         history.push(assistantMsg);

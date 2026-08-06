@@ -17,7 +17,9 @@ export interface ServerChatResult {
         prompt_tokens: number;
         completion_tokens: number;
         total_tokens: number;
+        reasoning_tokens?: number;
     };
+    reasoningTokens?: number;
 }
 
 export interface ServerChatOptions {
@@ -326,6 +328,7 @@ export async function executeChatRequest(opts: ServerChatOptions): Promise<Serve
                         model: parsed.model ?? '',
                         sessionId,
                         usage: parsed.usage,
+                        reasoningTokens: parsed.reasoningTokens,
                     };
                     onLog?.({
                         id: `${Date.now()}-res`,

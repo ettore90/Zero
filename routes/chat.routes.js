@@ -92,13 +92,18 @@ router.post('/chat', checkLocalAccess, async (req, res) => {
       } catch {}
     }
 
-    sendEvent('done', {
+    const usage = result.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    const donePayload = {
       content: result.content,
       tool_calls: undefined,
       toolSummary: result.toolSummary,
       model: resolved.modelConfig.modelId,
-      usage: result.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-    });
+      usage,
+    };
+    if (typeof result.usage?.reasoning_tokens === 'number') {
+      donePayload.reasoningTokens = result.usage.reasoning_tokens;
+    }
+    sendEvent('done', donePayload);
   } catch (err) {
     const errorCode = err?.code || null;
     const errorMessage = String(err?.message || err || 'Unknown error');

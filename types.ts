@@ -64,6 +64,8 @@ export interface Message {
   attachments?: Attachment[];
   tool_calls?: ToolCall[];
   tool_call_id?: string;
+  reasoningTokens?: number;
+  meta?: any;
 }
 
 export interface Attachment {
