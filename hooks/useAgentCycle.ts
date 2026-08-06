@@ -425,6 +425,7 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
         if (lastEph && lastEph.role === 'assistant') {
           lastEph.content = (result as any).content;
           (lastEph as any).tool_calls = (result as any).tool_calls;
+          if ((result as any).reasoningTokens !== undefined) (lastEph as any).reasoningTokens = (result as any).reasoningTokens;
         }
         if ((result as any).tool_calls && (result as any).tool_calls.length > 0) {
           await opts.processToolCalls(targetAgentId, (result as any).tool_calls, signal, ephemeralHistory);
@@ -447,6 +448,12 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
                 const { session: freshSession } = await sessRes.json();
                 if (freshSession?.messages && finalAgents[finalIdx].activeSessionId === finalSessionId) {
                   finalAgents[finalIdx].history = freshSession.messages;
+                  if ((result as any).reasoningTokens !== undefined) {
+                    const lastMsg = finalAgents[finalIdx].history[finalAgents[finalIdx].history.length - 1];
+                    if (lastMsg?.role === 'assistant' && (lastMsg as any).reasoningTokens === undefined) {
+                      (lastMsg as any).reasoningTokens = (result as any).reasoningTokens;
+                    }
+                  }
                 }
               }
             }
@@ -457,6 +464,7 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
           if (lastMsg) {
             lastMsg.content = (result as any).content;
             (lastMsg as any).tool_calls = (result as any).tool_calls;
+            if ((result as any).reasoningTokens !== undefined) (lastMsg as any).reasoningTokens = (result as any).reasoningTokens;
           }
         }
         opts.setPersistedAgents(finalAgents);
