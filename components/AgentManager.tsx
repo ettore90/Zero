@@ -1086,7 +1086,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                 </div>
 
                 <div>
-                  <label className={labelCls}>Reasoning <span className="normal-case font-normal text-gray-400">(OpenRouter only)</span></label>
+                  <label className={labelCls}>Reasoning <span className="normal-case font-normal text-gray-400">(OpenRouter + Azure Foundry)</span></label>
                   <div className="flex items-center gap-3 mt-1">
                     <button
                       type="button"
@@ -1104,7 +1104,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                     </span>
                   </div>
                   <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1.5">
-                    When disabled, sends <code className="font-mono">reasoning: &#123;effort: "none"&#125;</code> to OpenRouter. Keep OFF for agents that return JSON.
+                    When disabled, sends provider-specific low-reasoning settings to OpenRouter and Azure Foundry. Keep OFF for agents that return JSON.
                   </p>
                 </div>
               </div>

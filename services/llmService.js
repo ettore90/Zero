@@ -1332,10 +1332,15 @@ function buildLLMRequest(messages, modelConfig, tools, agent = null) {
     body.temperature = temperature;
   }
 
-  // Reasoning control for OpenRouter: disabled by default (better for structured output / JSON agents)
-  // Set agent.reasoning = true to enable high-effort reasoning
+  // Reasoning control for OpenRouter chat-completions payloads: keep reasoning.effort on the request body.
+  // Set agent.reasoning = true to enable high-effort reasoning.
   if (provider === 'openrouter') {
     body.reasoning = { effort: agent?.reasoning === true ? 'high' : 'none' };
+  }
+
+  // Azure Foundry chat-completions payloads use reasoning_effort, not reasoning.
+  if (provider === 'azure-foundry') {
+    body.reasoning_effort = agent?.reasoning === true ? 'high' : 'none';
   }
 
   return { url, headers, body };
@@ -2115,12 +2120,13 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
 
               // Handle reasoning chunks from reasoning models (e.g. gpt-oss via OpenRouter)
               // Accumulate reasoning text as <think>...</think> block prepended to content
-              if (delta.reasoning && !delta.content) {
+              const deltaReasoning = delta.reasoning ?? delta.reasoning_content ?? delta.thinking ?? delta.reasoningText;
+              if (deltaReasoning && !delta.content) {
                 // reasoning-only chunk — accumulate silently, will be wrapped at end
                 if (!fullContent.includes('<think>')) {
-                  fullContent = '<think>' + delta.reasoning;
+                  fullContent = '<think>' + deltaReasoning;
                 } else {
-                  fullContent += delta.reasoning;
+                  fullContent += deltaReasoning;
                 }
                 continue;
               }
@@ -2174,6 +2180,10 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
         }
 
         emitEvent('llm_response', { model: body.model, raw: rawBuffer });
+
+        if (fullContent.includes('<think>') && !fullContent.includes('</think>')) {
+          fullContent += '</think>';
+        }
 
         if (!trimmed(fullContent) && toolCalls.length === 0 && trimmed(rawBuffer)) {
           try {
