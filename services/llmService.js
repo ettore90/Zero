@@ -240,6 +240,83 @@ function trimmed(value) {
   return asText(value).trim();
 }
 
+function collectReasoningText(value, seen = new Set()) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (seen.has(value)) return '';
+  if (typeof value !== 'object') return '';
+  seen.add(value);
+
+  const segments = [];
+  const add = (candidate) => {
+    const text = collectReasoningText(candidate, seen);
+    if (text) segments.push(text);
+  };
+
+  const directKeys = ['reasoning', 'reasoning_content', 'reasoningText', 'thinking'];
+  for (const key of directKeys) {
+    if (value[key] != null) add(value[key]);
+  }
+
+  if (typeof value.text === 'string') segments.push(value.text);
+  if (typeof value.content === 'string') segments.push(value.content);
+  if (typeof value.message === 'string') segments.push(value.message);
+
+  if (Array.isArray(value.content)) add(value.content);
+  if (Array.isArray(value.parts)) add(value.parts);
+  if (Array.isArray(value.output)) add(value.output);
+  if (Array.isArray(value.items)) add(value.items);
+
+  if (value.output != null && !Array.isArray(value.output) && typeof value.output === 'object') add(value.output);
+
+  if (typeof value === 'object') {
+    if (value.type === 'reasoning' && typeof value.text === 'string') segments.push(value.text);
+    if (value.type === 'reasoning' && typeof value.content === 'string') segments.push(value.content);
+    if (value.type === 'reasoning' && value.reasoning != null) add(value.reasoning);
+    if (value.type === 'reasoning' && value.thinking != null) add(value.thinking);
+    if (value.type === 'reasoning_content' && typeof value.text === 'string') segments.push(value.text);
+    if (value.type === 'text' && typeof value.text === 'string') segments.push(value.text);
+    if (value.type === 'output_text' && typeof value.text === 'string') segments.push(value.text);
+    if (value.type === 'message' && value.content != null) add(value.content);
+    if (Array.isArray(value.output)) {
+      for (const item of value.output) {
+        if (item && typeof item === 'object' && (item.type === 'reasoning' || item.reasoning != null || item.thinking != null || item.reasoning_content != null || item.reasoningText != null)) {
+          add(item);
+        }
+      }
+    }
+  }
+
+  return segments.map((segment) => asText(segment)).filter(Boolean).join('');
+}
+
+function wrapThinkBlock(reasoning) {
+  const text = asText(reasoning).trim();
+  return text ? `<think>${text}</think>` : '';
+}
+
+function mergeThinkBlock(existingContent, reasoning) {
+  const existing = asText(existingContent || '');
+  const reasoningText = asText(reasoning).trim();
+  if (!reasoningText) return existing;
+
+  if (!existing.includes('<think>')) return wrapThinkBlock(reasoningText);
+
+  if (!existing.includes('</think>')) {
+    return existing.replace(/<think>\s*$/, '<think>') + reasoningText;
+  }
+
+  return existing + wrapThinkBlock(reasoningText);
+}
+
+function extractReasoningFallback(...candidates) {
+  for (const candidate of candidates) {
+    const reasoning = collectReasoningText(candidate);
+    if (trimmed(reasoning)) return reasoning;
+  }
+  return '';
+}
+
 function compactBullet(text, maxLen = 180) {
   const clean = String(text || '').replace(/\r/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   return clean.length > maxLen ? clean.slice(0, maxLen - 1) + '…' : clean;
@@ -2120,14 +2197,9 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
 
               // Handle reasoning chunks from reasoning models (e.g. gpt-oss via OpenRouter)
               // Accumulate reasoning text as <think>...</think> block prepended to content
-              const deltaReasoning = delta.reasoning ?? delta.reasoning_content ?? delta.thinking ?? delta.reasoningText;
+              const deltaReasoning = extractReasoningFallback(delta);
               if (deltaReasoning && !delta.content) {
-                // reasoning-only chunk — accumulate silently, will be wrapped at end
-                if (!fullContent.includes('<think>')) {
-                  fullContent = '<think>' + deltaReasoning;
-                } else {
-                  fullContent += deltaReasoning;
-                }
+                fullContent = mergeThinkBlock(fullContent, deltaReasoning);
                 continue;
               }
               // Close the <think> block when real content starts
@@ -2265,12 +2337,16 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
             const legacyFunctionCall =
               msg.function_call || choice.function_call || json.function_call || null;
 
+            const fallbackReasoning = extractReasoningFallback(msg, choice, json);
             if (msg.content != null) {
               fullContent = asText(msg.content);
             } else if (json.response != null) {
               fullContent = asText(json.response);
             } else if (choice.text != null) {
               fullContent = asText(choice.text);
+            }
+            if (fallbackReasoning) {
+              fullContent = mergeThinkBlock(fullContent, fallbackReasoning);
             }
 
             if (json.usage) {
