@@ -11,6 +11,7 @@ interface CommandStreamProps {
   history: Message[];
   pendingApproval: { agentId: string; toolCalls: ToolCall[]; sensitiveCalls: ToolCall[] } | null;
   agentId: string;
+  isDarkTheme: boolean;
   onApprove: () => void;
   onDeny: () => void;
 }
@@ -62,7 +63,7 @@ const SmartValue = ({ value, depth = 0 }: { value: any; depth?: number }) => {
   return <span className="text-slate-700 dark:text-slate-300">{String(value)}</span>;
 };
 
-const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval, agentId, onApprove, onDeny }) => {
+const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval, agentId, isDarkTheme, onApprove, onDeny }) => {
   const streamRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
 
@@ -78,7 +79,7 @@ const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval,
   const pendingSensitiveCalls = Array.isArray(pendingApproval?.sensitiveCalls) ? pendingApproval.sensitiveCalls : [];
 
   return (
-    <div ref={viewportRef} className="flex-1 min-h-0 overflow-auto">
+    <div ref={viewportRef} className={`flex-1 min-h-0 overflow-auto ${isDarkTheme ? 'bg-[#1e1e1e]' : 'bg-slate-200'}`}>
       <div ref={streamRef} className="p-3 space-y-3 text-xs font-mono">
         {commandLog.length === 0 && (
           <div className="select-none py-10 text-center text-slate-500 dark:text-slate-600">
@@ -584,7 +585,7 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
           renderEditor()
         ) : (
           <CanvasViewport>
-            <CommandStream history={agentHistory} pendingApproval={pendingApproval} agentId={agentId} onApprove={onApproveTool} onDeny={onDenyTool} />
+            <CommandStream history={agentHistory} pendingApproval={pendingApproval} agentId={agentId} isDarkTheme={isDarkTheme} onApprove={onApproveTool} onDeny={onDenyTool} />
           </CanvasViewport>
         )}
       </div>
