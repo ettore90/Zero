@@ -297,7 +297,6 @@ export async function executeChatRequest(opts: ServerChatOptions): Promise<Serve
 
                 if (currentEvent === 'chunk') {
                     if (parsed.content && onChunk) onChunk(parsed.content);
-                    onEvent?.('chunk', parsed);
                 } else if (currentEvent === 'assistant_message') {
                     onEvent?.('assistant_message', parsed);
                 } else if (currentEvent === 'tool_call') {
