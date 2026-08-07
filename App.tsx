@@ -80,6 +80,14 @@ const App: React.FC = () => {
     const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
     const [sessionNoteRemoteRefreshKey, setSessionNoteRemoteRefreshKey] = useState<number>(0);
     const activeAgentIdRef = useRef<string>(DEFAULT_AGENT.id);
+    // Agent IDs whose live events (chunks, session_updated snapshots) are already being applied
+    // to history via this tab's own direct /api/chat stream (see useAgentCycle). The server also
+    // rebroadcasts the very same events to the global /api/stream SSE connection (used for
+    // cross-tab sync and reconnection), which this same tab is also subscribed to. Without this
+    // guard, the handlers below would re-apply every streamed token / snapshot a second time,
+    // racing with useAgentCycle's own updates and rendering a duplicate/garbled assistant bubble
+    // while the agent is cycling (it self-corrects once agent_done reloads canonical history).
+    const locallyStreamingAgentsRef = useRef<Set<string>>(new Set());
 
     const appConfig = useAppConfig(token, username, isOfflineMode);
     const {
@@ -431,16 +439,15 @@ const App: React.FC = () => {
                 sseHandlersRef.current.setRunningAgents?.((prev: Set<string>) => new Set([...prev, event.agentId]));
                 syncAgentGeneratingState(event.agentId, true);
             } else if (event.type === 'chunk') {
-                // When serverChatAvailable, chunks are already streamed via
-                // useAgentCycle -> ServerChat.executeChatRequest(onChunk).
-                // Skip rendering chunk updates here to avoid double-rendering.
-                if (serverChatAvailable) {
-                    syncAgentGeneratingState(event.agentId, true);
-                    return;
-                }
                 const targetAgentId = event.agentId;
                 if (targetAgentId) {
                     syncAgentGeneratingState(targetAgentId, true);
+                    // This tab is already streaming this agent's tokens via its own direct
+                    // /api/chat response (useAgentCycle) — skip the broadcast copy so the
+                    // bubble isn't appended to twice while the cycle is running. Chunks for
+                    // agents another tab/device is driving still render here, so cross-tab
+                    // live viewing keeps working.
+                    if (locallyStreamingAgentsRef.current.has(targetAgentId)) return;
                     setAgents(prev => {
                         const idx = prev.findIndex((a: any) => a.id === targetAgentId);
                         if (idx === -1) return prev;
@@ -663,7 +670,13 @@ const App: React.FC = () => {
                 const refreshesActiveSession = Boolean(currentAgent?.activeSessionId && event.sessionId === currentAgent.activeSessionId);
                 if (refreshesActiveSession) {
                     setSessionNoteRemoteRefreshKey(prev => prev + 1);
-                    if (username && event.sessionId && event.sessionId !== 'default' && String(event.sessionId).length > 8) {
+                    const sessionAgentId = event.agentId || activeAgentIdRef.current;
+                    // This tab is already applying session_updated snapshots for this agent via
+                    // its own direct /api/chat stream (useAgentCycle) — skip the broadcast copy
+                    // to avoid two independent fetch-and-replace calls racing each other and
+                    // clobbering in-progress streamed content.
+                    const isLocallyStreaming = sessionAgentId && locallyStreamingAgentsRef.current.has(sessionAgentId);
+                    if (username && !isLocallyStreaming && event.sessionId && event.sessionId !== 'default' && String(event.sessionId).length > 8) {
                         ServerChat.loadSession(event.sessionId, username).then(session => {
                             if (!session) return;
                             setAgents(prev => {
@@ -1088,6 +1101,7 @@ const App: React.FC = () => {
         setPendingPlan,
         setPendingApproval,
         setPendingStrategyPlan,
+        locallyStreamingAgentsRef,
     });
     runAgentCycleRef.current = runAgentCycle;
 

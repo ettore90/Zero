@@ -47,6 +47,10 @@ interface UseAgentCycleOptions {
   setPendingPlan: (v: any) => void;
   setPendingApproval: (v: any) => void;
   setPendingStrategyPlan: (v: any) => void;
+  // Agent IDs currently being driven live by this tab's own /api/chat stream — lets the
+  // global SSE listener (App.tsx) skip re-applying broadcast copies of the same chunk/
+  // session_updated events.
+  locallyStreamingAgentsRef: MutableRefObject<Set<string>>;
 }
 
 function requiresApproval(toolName: string, args: any): boolean {
@@ -112,9 +116,13 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
       const initialSessionId = currentAgents[activeAgentIndex]?.activeSessionId ?? null;
       opts.setAgentGenerating(agentId, true, null, initialSessionId);
       opts.isGeneratingRef.current = true;
+      opts.locallyStreamingAgentsRef.current.add(agentId);
     }
     if (activeAgentIndex === -1) {
-      if (!silent) opts.setAgentGenerating(agentId, false, null);
+      if (!silent) {
+        opts.setAgentGenerating(agentId, false, null);
+        opts.locallyStreamingAgentsRef.current.delete(agentId);
+      }
       return undefined;
     }
 
@@ -131,6 +139,7 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
         opts.addNotification('Auth not ready', 'User identity is still loading. Try again in a moment.', 'warning');
         opts.setAgentGenerating(agentId, false, null);
         opts.isGeneratingRef.current = false;
+        opts.locallyStreamingAgentsRef.current.delete(agentId);
       }
       return undefined;
     }
@@ -179,6 +188,7 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
         opts.addNotification('No Model', `Agent \"${agent.name}\" needs a model configured.`, 'error');
         opts.setAgentGenerating(agentId, false, null);
         opts.isGeneratingRef.current = false;
+        opts.locallyStreamingAgentsRef.current.delete(agentId);
       }
       currentAgents[activeAgentIndex].history.push({ role: 'assistant' as const, content: errMsg, timestamp: Date.now() });
       opts.setPersistedAgents([...currentAgents]);
@@ -460,12 +470,14 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
           if (sensitiveCalls.length > 0 && !silent) {
             opts.setPendingApproval({ agentId: targetAgentId, toolCalls: (result as any).tool_calls, sensitiveCalls } as any);
             opts.setAgentGenerating(agentId, false, null);
+            opts.locallyStreamingAgentsRef.current.delete(agentId);
             return (result as any).content;
           }
           if (!silent && (result as any).tool_calls.length >= 2) {
             opts.setPendingPlan({ agentId: targetAgentId, toolCalls: (result as any).tool_calls, signal } as any);
             opts.setAgentGenerating(agentId, false, null);
             opts.isGeneratingRef.current = false;
+            opts.locallyStreamingAgentsRef.current.delete(agentId);
             return (result as any).content;
           }
           await opts.processToolCalls(targetAgentId, (result as any).tool_calls, signal);
@@ -482,6 +494,7 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
           if (!silent) {
             opts.setAgentGenerating(agentId, false, null);
             opts.isGeneratingRef.current = false;
+            opts.locallyStreamingAgentsRef.current.delete(agentId);
             await opts.persistAndSync();
             const finishedAgent = opts.agentsRef.current.find(a => a.id === targetAgentId);
             if (finishedAgent) opts.onCycleComplete(finishedAgent);
@@ -501,7 +514,10 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
           opts.setPersistedAgents(errAgents);
         }
       }
-      if (!silent) opts.setAgentGenerating(agentId, false, null);
+      if (!silent) {
+        opts.setAgentGenerating(agentId, false, null);
+        opts.locallyStreamingAgentsRef.current.delete(agentId);
+      }
       return undefined;
     }
   };
