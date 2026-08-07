@@ -431,6 +431,13 @@ const App: React.FC = () => {
                 sseHandlersRef.current.setRunningAgents?.((prev: Set<string>) => new Set([...prev, event.agentId]));
                 syncAgentGeneratingState(event.agentId, true);
             } else if (event.type === 'chunk') {
+                // When serverChatAvailable, chunks are already streamed via
+                // useAgentCycle -> ServerChat.executeChatRequest(onChunk).
+                // Skip rendering chunk updates here to avoid double-rendering.
+                if (serverChatAvailable) {
+                    syncAgentGeneratingState(event.agentId, true);
+                    return;
+                }
                 const targetAgentId = event.agentId;
                 if (targetAgentId) {
                     syncAgentGeneratingState(targetAgentId, true);
