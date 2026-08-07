@@ -63,7 +63,7 @@ const SmartValue = ({ value, depth = 0 }: { value: any; depth?: number }) => {
   return <span className="text-slate-700 dark:text-slate-300">{String(value)}</span>;
 };
 
-const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval, agentId, isDarkTheme, onApprove, onDeny }) => {
+const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval, agentId, onApprove, onDeny }) => {
   const streamRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
 
@@ -79,10 +79,10 @@ const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval,
   const pendingSensitiveCalls = Array.isArray(pendingApproval?.sensitiveCalls) ? pendingApproval.sensitiveCalls : [];
 
   return (
-    <div ref={viewportRef} className={`flex-1 min-h-0 overflow-auto ${isDarkTheme ? 'bg-[#1e1e1e]' : 'bg-slate-200'}`}>
+    <div ref={viewportRef} className="flex-1 min-h-0 overflow-auto bg-slate-200 dark:bg-[#1e1e1e]">
       <div ref={streamRef} className="p-3 space-y-3 text-xs font-mono">
         {commandLog.length === 0 && (
-          <div className="select-none py-10 text-center text-slate-500 dark:text-slate-600">
+          <div className="select-none py-10 text-center text-slate-500 dark:text-slate-400">
           <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto mb-2 h-8 w-8 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
@@ -110,10 +110,10 @@ const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval,
           {msg.role === 'tool' && (
             <div className="ml-3 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-black/20">
               <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1 dark:border-white/5 dark:bg-white/5">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-500">Output</span>
+                <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Output</span>
               </div>
               <div className="max-h-40 overflow-y-auto p-2 custom-scrollbar">
                 <SmartValue value={(() => { try { return JSON.parse(msg.content); } catch { return msg.content; } })()} />
@@ -205,14 +205,14 @@ const SessionNoteSurface: React.FC<{
 
   return (
     <div ref={surfaceRef} className={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${tab.isWriting ? 'ring-2 ring-nebula-500/30 ring-inset' : ''}`}>
-      <div className="relative flex min-w-0 items-center justify-between gap-4 border-b border-slate-200/80 bg-[#252526] px-4 py-3 dark:border-slate-700/80 dark:bg-[#252526]">
+      <div className="relative flex min-w-0 items-center justify-between gap-4 border-b border-slate-200/80 bg-white px-4 py-3 dark:border-slate-700/80 dark:bg-[#252526]">
         <div className="min-w-0">
           <div className="text-[10px] uppercase tracking-[0.32em] text-slate-500 dark:text-slate-500">Session Note</div>
           <div className="mt-1 flex items-center gap-2 min-w-0">
             <input
               value={draftTitle}
               onChange={e => setDraftTitle(e.target.value)}
-              className="min-w-0 max-w-[28rem] truncate rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold tracking-[-0.02em] text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-nebula-300 focus:bg-white/80 dark:text-slate-100 dark:focus:border-nebula-500 dark:focus:bg-slate-800/70"
+              className="min-w-0 max-w-[28rem] truncate rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold tracking-[-0.02em] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-nebula-300 focus:bg-white/80 dark:text-slate-100 dark:focus:border-nebula-500 dark:focus:bg-slate-800/70"
               placeholder="Session note"
               aria-label="Rename session note"
             />
@@ -220,7 +220,7 @@ const SessionNoteSurface: React.FC<{
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.2em] text-slate-500 dark:text-slate-500">
             <span className={`h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
             <span>{isDirty ? 'Unsaved changes' : 'Saved'}</span>
-            <span className="text-nebula-100 dark:text-slate-600">•</span>
+            <span className="text-nebula-300 dark:text-slate-600">•</span>
             <span>Ctrl/Cmd+S</span>
           </div>
         </div>
@@ -294,7 +294,7 @@ const CanvasViewport: React.FC<{ className?: string; children: React.ReactNode }
 );
 
 const MonacoLoader = () => (
-  <div className="flex flex-1 min-h-0 min-w-0 items-center justify-center bg-[#1e1e1e]">
+  <div className="flex flex-1 min-h-0 min-w-0 items-center justify-center bg-white dark:bg-[#1e1e1e]">
     <div className="flex gap-1.5">
       {[0, 1, 2].map(i => (
         <div key={i} className="w-2 h-2 bg-nebula-500/60 rounded-full animate-bounce" style={{ animationDelay: `${i * 120}ms` }} />
@@ -477,10 +477,10 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
       return (
         <CanvasViewport>
           <div className="flex h-full min-h-0 min-w-0 flex-col relative overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 bg-amber-950/40 border-b border-amber-800/30 shrink-0 min-w-0">
+            <div className="flex items-center justify-between px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/30 shrink-0 min-w-0">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                <span className="text-amber-300 text-[10px] font-black uppercase tracking-wider truncate">Proposed Changes — {activeTab.filename}</span>
+                <span className="text-amber-700 dark:text-amber-300 text-[10px] font-black uppercase tracking-wider truncate">Proposed Changes — {activeTab.filename}</span>
               </div>
               <div className="flex gap-2 shrink-0">
                 <button onClick={() => onRejectDiff(activeTab.id, activeTab.originalContent!)} className="px-3 py-1 rounded-lg bg-red-600/80 hover:bg-red-600 text-white text-[10px] font-black uppercase tracking-wider transition-colors flex items-center gap-1">
@@ -494,8 +494,8 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
               </div>
             </div>
             <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden">
-              <div className="flex-1 flex flex-col min-w-0 min-h-0 border-r border-slate-700/50 overflow-hidden">
-                <div className="px-3 py-1 bg-red-900/20 border-b border-red-800/30 text-[9px] font-black text-red-400 uppercase tracking-wider shrink-0">Original</div>
+              <div className="flex-1 flex flex-col min-w-0 min-h-0 border-r border-slate-200 dark:border-slate-700/50 overflow-hidden">
+                <div className="px-3 py-1 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800/30 text-[9px] font-black text-red-600 dark:text-red-400 uppercase tracking-wider shrink-0">Original</div>
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Suspense fallback={<MonacoLoader />}>
                     <MonacoEditor height="100%" theme={monacoTheme} defaultLanguage={activeTab.language} value={activeTab.originalContent} options={{ ...monacoOptions, readOnly: true }} />
@@ -503,7 +503,7 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
                 </div>
               </div>
               <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-                <div className="px-3 py-1 bg-green-900/20 border-b border-green-800/30 text-[9px] font-black text-green-400 uppercase tracking-wider shrink-0">Proposed</div>
+                <div className="px-3 py-1 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800/30 text-[9px] font-black text-green-600 dark:text-green-400 uppercase tracking-wider shrink-0">Proposed</div>
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Suspense fallback={<MonacoLoader />}>
                     <MonacoEditor height="100%" theme={monacoTheme} defaultLanguage={activeTab.language} value={activeTab.content} options={{ ...monacoOptions, readOnly: true }} />
@@ -549,18 +549,18 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 bg-[#1e1e1e] dark:bg-[#1e1e1e] overflow-hidden">
+    <div className="flex h-full min-h-0 min-w-0 bg-white dark:bg-[#1e1e1e] overflow-hidden">
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {((activeCanvasTab === 'commands') || activeCanvasTab === 'editor') && (
-          <div className="px-4 py-2 bg-[#252526] border-b border-[#3e3e3e] shrink-0 overflow-hidden">
+          <div className="px-4 py-2 bg-slate-100 dark:bg-[#252526] border-b border-slate-200 dark:border-[#3e3e3e] shrink-0 overflow-hidden">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                 {onCollapseCanvas && (
-                  <button onClick={onCollapseCanvas} className="h-7 w-7 shrink-0 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800/70 transition-colors" title="Collapse canvas" aria-label="Collapse canvas">
+                  <button onClick={onCollapseCanvas} className="h-7 w-7 shrink-0 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800/70 transition-colors" title="Collapse canvas" aria-label="Collapse canvas">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                   </button>
                 )}
-                <div className="min-w-0 truncate text-[12px] font-medium text-slate-200">{headerTitle}</div>
+                <div className="min-w-0 truncate text-[12px] font-medium text-slate-700 dark:text-slate-200">{headerTitle}</div>
               </div>
               <div className="ml-auto flex items-center gap-2 min-w-0 shrink-0">
                 {canShowFileActions && activeTab && (
@@ -571,7 +571,7 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
                         Save
                       </button>
                     )}
-                    <button onClick={() => onSaveAsTab(activeTab.id, activeTab.content, activeTab.path)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-700/80 hover:bg-slate-600 text-white text-[9px] font-black uppercase tracking-wider transition-colors" title="Save as...">
+                    <button onClick={() => onSaveAsTab(activeTab.id, activeTab.content, activeTab.path)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-300 hover:bg-slate-400 text-slate-900 dark:bg-slate-700/80 dark:hover:bg-slate-600 dark:text-white text-[9px] font-black uppercase tracking-wider transition-colors" title="Save as...">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                       Save As
                     </button>
