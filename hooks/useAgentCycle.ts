@@ -307,23 +307,8 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
             projectPath: opts.projects.find((p: any) => p.id === opts.activeProjectId)?.path,
             onEvent: (event, data) => {
               if (isEphemeral) return;
-              if (event === 'assistant_message' && data.content) {
-                opts.setAgents(prev => {
-                  const idx = prev.findIndex(a => a.id === targetAgentId);
-                  if (idx === -1) return prev;
-                  const next = [...prev];
-                  const agentCopy = { ...next[idx] };
-                  const hist = [...agentCopy.history];
-                  const last = hist[hist.length - 1];
-                  if (last?.role === 'assistant' && last.content) {
-                    hist.push({ role: 'assistant' as const, content: '', timestamp: Date.now() });
-                    agentCopy.history = hist;
-                    next[idx] = agentCopy;
-                    opts.agentsRef.current = next;
-                  }
-                  return next;
-                });
-              } else if (event === 'tool_call') {
+              // assistant_message is handled by onChunk -> flushChunk. Do NOT duplicate the assistant entry here.
+              if (event === 'tool_call') {
                 opts.setAgents(prev => {
                   const idx = prev.findIndex(a => a.id === targetAgentId);
                   if (idx === -1) return prev;
