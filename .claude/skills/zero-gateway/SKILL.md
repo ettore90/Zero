@@ -64,6 +64,8 @@ unrestricted** — the container can reach anything on the internet.
 - **`GET /state/:username` returns provider API keys in plaintext** (`apiKeys[].value`, `modelConfigs[].apiKey`) with no ownership check. Never dump that response raw into a transcript, log, or paste — extract only the fields you need. `zero_models` already does.
 - `POST /proxy` is an **open SSRF relay**: arbitrary `targetUrl`, no allowlist, no auth. Combined with unrestricted egress this reaches any external host — and any host on the container's Docker networks.
 - `/system/exec`, `/system/python`, `/system/fs/*` are arbitrary shell and arbitrary-path file I/O with no sandboxing.
+- **`/var/run/docker.sock` is bind-mounted read-write into the container.** That is root-equivalent control of the host Docker daemon from inside Zero — container escape by design. Chained with the unauthenticated API above, anything that reaches this HTTP surface can take the host.
+- The **ettore90 SSH key is inside the container** (`/root/.ssh/zero_github`, pinned by `GIT_SSH_COMMAND`), and `/uby` — every repo under `~/Software/Uby` — is mounted read-write. So Zero can read, write and push those repos as ettore90 by design. There is no `gh` binary and no ettoreml credential in there.
 
 The inbound restriction is the only thing making this acceptable. It stops being acceptable the
 moment any of it is bound publicly or proxied out.
@@ -99,9 +101,14 @@ Two destructive shapes to avoid firing by accident:
 
 `POST /system/fs/read` `{path*, start_line, end_line}` · `fs/write` `{path*, content}` (full overwrite, creates parent dirs) · `fs/list` `{path}` · `fs/find` `{pattern, path, maxDepth, type, exclude}` (caps at 200 hits) · `fs/patch` `{path*, oldStr*, newStr, replaceAll}`.
 
-Paths are the **container's** view: the host's `/home/ettore` is `/host_system`, and `/app` is
-the Zero checkout. No path confinement. For host paths prefer your own local Bash tools — reach
-for these only when the target is something only the container can see.
+Paths are the **container's** view, and the only host directory actually mounted is
+`/home/ettore/Software/Uby` → **`/uby`** (read-write). `/app` is the Zero checkout itself;
+`/app/storage` is the `zero-data` bind. No path confinement.
+
+**`/host_system` does not exist** — despite `CONTAINER_HOME=/host_system` being set, nothing is
+mounted there, so every path `utils/pathTransforms.js` produces points at a missing directory.
+A failed `fs/list` leaks the expectation in its response: `"candidates":["/host_system","/home/ettore"]`.
+Use `/uby/...` instead. For host paths outside `/uby`, use your own local Bash tools.
 
 ### Sessions & history
 
@@ -129,6 +136,7 @@ supplies its own `Authorization`, so it is not a key-hiding gateway).
 ## Known broken
 
 - **`/system/exec`, `/system/python` and every `/git/*` route** throw `BASH_BIN is not defined`. `BASH_BIN` is a module-local `const` in `services/llmService.js:54` but referenced as a global at `routes/system.routes.js:118` and `routes/git.routes.js:17`. exec returns HTTP 200 with `{"error":"BASH_BIN is not defined","exitCode":1}`; git returns HTTP 500. `fs/*` is unaffected. Use local Bash, or fix the import.
+- **`CONTAINER_HOME=/host_system` points at an unmounted path.** The real bind is `/uby`, so `containerToHost`/`hostToContainer` in `utils/pathTransforms.js` translate into paths that do not exist. Either fix the env var to `/uby` or add the mount.
 - `GET /git/diff` interpolates its `files` query param into a shell string unescaped — command injection. Every other git route uses `escapeShellArg`. Fix before relying on it.
 - Bodyless POSTs crash on `/workflow-runs/cancel`, `/agent/stop`, `/alerts/read`, `/migrate` — always send at least `{}`.
 - `/nebula/*` is a 501 stub, and a path bug puts it at `/nebula/nebula/*`. `routes/static.routes.js` is dead code, never mounted. `POST /admin/digest` is a hard-coded stub.
