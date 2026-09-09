@@ -19,8 +19,12 @@ import { Router } from 'express';
 import https from 'https';
 import { getDb } from '../db.js';
 import { checkLocalAccess } from '../middlewares/localAccess.js';
-import { readState } from '../services/userStateService.js';
-import { resolveSecrets } from '../utils/resolveSecrets.js';
+import {
+  getJiraToken,
+  buildAuthorizationHeader,
+  normalizeJiraPath,
+  forwardToJira,
+} from '../services/jiraProxyService.js';
 
 const router = Router();
 const JIRA_HOSTNAME = 'stefaninisophiedelivery.atlassian.net';
@@ -65,63 +69,9 @@ function ensureQueueSchema(db) {
   `);
 }
 
-// ---------------------------------------------------------------------------
-// getJiraToken — canonical resolution order:
-//   1. Server-side stored secret for the current user (apiKeys in user state)
-//      resolved via {{JIRA_KEY}} placeholder or direct key lookup for 'JIRA_KEY'
-//   2. x-jira-token request header (raw value or {{JIRA_KEY}} placeholder)
-//   3. JIRA_TOKEN environment variable
-// ---------------------------------------------------------------------------
-function getJiraToken(req) {
-  const username = req.user?.username || req.headers['x-username'] || '';
-
-  // 1. Server-side stored secret (canonical, preferred)
-  if (username) {
-    try {
-      const state = readState(username) || {};
-      const apiKeys = state.apiKeys || [];
-      const stored = apiKeys.find(
-        (k) => k.name === 'JIRA_KEY' || k.name === 'JIRA_TOKEN'
-      );
-      if (stored?.value?.trim()) {
-        return stored.value.trim();
-      }
-    } catch (_) {
-      // non-fatal: fall through to header/env
-    }
-  }
-
-  // 2. x-jira-token header — resolve {{JIRA_KEY}} placeholder if present
-  const headerRaw = (req.headers['x-jira-token'] || '').trim();
-  if (headerRaw) {
-    if (headerRaw.includes('{{') && username) {
-      try {
-        const state = readState(username) || {};
-        const apiKeys = state.apiKeys || [];
-        const resolved = resolveSecrets(headerRaw, apiKeys);
-        if (resolved && !resolved.includes('{{')) return resolved;
-      } catch (_) { /* fall through */ }
-    }
-    // Return raw header value (may still be a valid token)
-    if (!headerRaw.includes('{{')) return headerRaw;
-  }
-
-  // 3. Environment variable fallback
-  return (process.env.JIRA_TOKEN || '').trim();
-}
-
-function buildAuthorizationHeader(token) {
-  if (!token) return '';
-  if (token.toLowerCase().startsWith('basic ')) return token;
-
-  const raw = token.trim();
-  const isLikelyBase64 = /^[A-Za-z0-9+/]+={0,2}$/.test(raw) && raw.length >= 8 && raw.length % 4 === 0;
-  const looksLikeUsernameKey = raw.includes(':') && !raw.includes(' ');
-
-  return (isLikelyBase64 || looksLikeUsernameKey)
-    ? `Basic ${Buffer.from(raw).toString('base64')}`
-    : `Basic ${raw}`;
-}
+// getJiraToken and buildAuthorizationHeader now live in
+// services/jiraProxyService.js so the passthrough route and these endpoints
+// resolve the credential identically.
 
 function jiraRequest({ method, path, body, token }) {
   return new Promise((resolve, reject) => {
@@ -1896,6 +1846,49 @@ router.post('/jira/action', async (req, res) => {
       detail: err.data || String(err),
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// ALL /api/jira/rest/* — credential-injecting passthrough to the Jira REST API
+//
+// Write the real Jira path and send no credential:
+//   curl -sk https://localhost/zero/api/jira/rest/api/3/myself -H 'x-username: ettore'
+//   curl -sk 'https://localhost/zero/api/jira/rest/api/3/search?jql=project%3DABC&maxResults=5' \
+//        -H 'x-username: ettore'
+//   curl -sk -X POST https://localhost/zero/api/jira/rest/api/3/issue/ABC-1/comment \
+//        -H 'x-username: ettore' -H 'Content-Type: application/json' \
+//        -d '{"body":{"type":"doc","version":1,"content":[]}}'
+//
+// Method, query string, body and upstream status are passed through unchanged.
+// The host is a constant and the path must be under rest/, so unlike
+// POST /api/proxy nothing in the request can retarget the call.
+// ---------------------------------------------------------------------------
+router.all('/jira/rest/*', checkLocalAccess, async (req, res) => {
+  const token = getJiraToken(req);
+  if (!token) {
+    return res.status(401).json({
+      error: 'No Jira credential available. Store JIRA_KEY in your Zero secrets, send x-jira-token, or set JIRA_TOKEN.',
+    });
+  }
+
+  const { path, error } = normalizeJiraPath(`rest/${req.params[0] || ''}`);
+  if (error) return res.status(400).json({ error });
+
+  const queryIndex = req.originalUrl.indexOf('?');
+  const query = queryIndex === -1 ? '' : req.originalUrl.slice(queryIndex + 1);
+
+  const hasBody = req.body && Object.keys(req.body).length > 0;
+  const result = await forwardToJira({
+    method: req.method,
+    path,
+    query,
+    body: hasBody ? req.body : undefined,
+    token,
+  });
+
+  res.status(result.status);
+  if (result.headers['content-type']) res.type(result.headers['content-type']);
+  return res.send(result.body);
 });
 
 export default router;
