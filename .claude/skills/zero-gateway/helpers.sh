@@ -91,6 +91,23 @@ zero_patch() {
     '{path:$p, oldStr:$o, newStr:$n}')"
 }
 
+# ---- shell / python (container, root, unsandboxed) -------------------------
+# cwd is REQUIRED in practice: the server default is an unmounted path and the
+# call fails with `spawn /bin/bash ENOENT`. Mounted: /app, /app/storage, /uby.
+
+# zero_exec <command> [cwd]
+zero_exec() {
+  zero_post /system/exec "$(jq -n --arg c "$1" --arg d "${2:-/app}" '{command:$c, cwd:$d}')"
+}
+
+# zero_py <code> [cwd]
+zero_py() {
+  zero_post /system/python "$(jq -n --arg c "$1" --arg d "${2:-/app}" '{code:$c, cwd:$d}')"
+}
+
+# zero_git <path-under-/app-or-/uby> — repo status via the git routes
+zero_git_status() { zero_get "/git/status?cwd=${1:-/app}"; }
+
 # ---- usage / sessions / control --------------------------------------------
 
 zero_usage()   { zero_get /usage; }
