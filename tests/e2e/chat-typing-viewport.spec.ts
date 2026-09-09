@@ -21,8 +21,16 @@ async function openChat(page: import('@playwright/test').Page) {
   return ta;
 }
 
+// Layout's outermost div carries the inline viewport lock. It is identified by
+// its class signature rather than a positional selector, which matched a
+// sibling and silently read an empty height.
 const rootHeight = (page: import('@playwright/test').Page) =>
-  page.evaluate(() => (document.querySelector('body > div') as HTMLElement)?.style.height ?? '');
+  page.evaluate(() => {
+    const roots = Array.from(document.querySelectorAll<HTMLElement>('div[style*="height"]'))
+      .filter((el) => el.style.height && el.className.includes('font-sans'));
+    if (roots.length !== 1) throw new Error(`expected exactly 1 app root, found ${roots.length}`);
+    return roots[0].style.height;
+  });
 
 test('keyboard-sized resize noise while typing does not re-lock the root height', async ({ page }) => {
   test.setTimeout(120_000);

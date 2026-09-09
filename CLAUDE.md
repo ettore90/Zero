@@ -74,6 +74,12 @@ docker exec -w /uby/zero playwright-runner npx playwright test tests/e2e/ --repo
 - **Set `ignoreHTTPSErrors: true`** — nginx serves a self-signed cert inside the network.
 - **Raise the per-test timeout.** The config's 30s covers the whole test, and the shell needs several
   seconds to mount after Open Session.
+- **The agent sidebar is collapsed below 1024px wide.** The agent buttons are in the DOM but sit in a
+  `w-0` wrapper, so a click waits forever on "element is not visible". Open the `Agents` rail button
+  first, or use a wider viewport.
+- **Don't address the app shell positionally.** `body > div > div` matches a sibling and reads back an
+  empty style; identify Layout's root by its class signature instead (see
+  `tests/e2e/chat-typing-viewport.spec.ts`).
 
 Auth is a `<select>` of existing users plus an `Open Session` button; a chat session is already open
 once the shell mounts. To reach the notes editor: click the canvas rail's `Notes` button on the right
@@ -82,7 +88,10 @@ edge, then `New`, then the created row (New selects a note but does not open it)
 **When a selector fight starts, take a screenshot and look at it** (`page.screenshot`, then read the
 PNG) instead of guessing at locators. That resolves in one step what costs a dozen blind iterations.
 
-Note that `notes-editor.spec.ts` leaves one empty session note behind per test.
+Note that `notes-editor.spec.ts` leaves one empty session note behind per test, and flakes
+intermittently in its `openSessionNote` helper (the editor occasionally never becomes
+visible). The failure moves between tests from run to run; re-run before treating it as a
+regression.
 
 ## Runtime shape
 
