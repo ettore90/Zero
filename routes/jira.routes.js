@@ -1853,8 +1853,10 @@ router.post('/jira/action', async (req, res) => {
 //
 // Write the real Jira path and send no credential:
 //   curl -sk https://localhost/zero/api/jira/rest/api/3/myself -H 'x-username: ettore'
-//   curl -sk 'https://localhost/zero/api/jira/rest/api/3/search?jql=project%3DABC&maxResults=5' \
+//   curl -sk 'https://localhost/zero/api/jira/rest/api/3/search/jql?jql=project%3DABC&maxResults=5' \
 //        -H 'x-username: ettore'
+//   (note /rest/api/3/search was removed by Atlassian; use search/jql, and JQL
+//    must be bounded -- an unrestricted query is rejected upstream)
 //   curl -sk -X POST https://localhost/zero/api/jira/rest/api/3/issue/ABC-1/comment \
 //        -H 'x-username: ettore' -H 'Content-Type: application/json' \
 //        -d '{"body":{"type":"doc","version":1,"content":[]}}'
