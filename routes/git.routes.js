@@ -12,12 +12,17 @@ import { BASH_BIN, firstExistingDir } from '../utils/shell.js';
 const router = Router();
 const execAsync = promisify(execCb);
 
+// Route defaults used to be env.CONTAINER_HOME, which is not mounted for this
+// service. Every handler echoes its own `cwd` back to the caller, so a bogus
+// default made responses claim a directory the command never ran in.
+const DEFAULT_CWD = firstExistingDir(env.CONTAINER_APP_ROOT, '/app', '/') || '/';
+
 async function runGit(command, cwd) {
   // These commands run inside the container, so the container path is the
   // correct cwd; the containerToHost translation is kept only as a fallback for
   // callers that pass a host path. Either may be unmounted, hence the guard --
   // spawning with a missing cwd surfaces as a misleading `ENOENT` on the shell.
-  const requested = cwd || env.CONTAINER_APP_ROOT || '/';
+  const requested = cwd || DEFAULT_CWD;
   const hostCwd =
     firstExistingDir(requested, containerToHost(requested, env), env.CONTAINER_APP_ROOT, '/app', '/') || '/';
   try {
@@ -29,7 +34,7 @@ async function runGit(command, cwd) {
 }
 
 router.get('/git/status', checkLocalAccess, async (req, res) => {
-  const cwd = String(req.query.cwd || env.CONTAINER_HOME || '/');
+  const cwd = String(req.query.cwd || DEFAULT_CWD);
   const status = await runGit('git status --porcelain', cwd);
   if (status.exitCode !== 0) return res.status(500).json({ error: status.error, cwd });
   const branch = await runGit('git branch --show-current', cwd);
@@ -38,7 +43,7 @@ router.get('/git/status', checkLocalAccess, async (req, res) => {
 });
 
 router.get('/git/diff', checkLocalAccess, async (req, res) => {
-  const cwd = String(req.query.cwd || env.CONTAINER_HOME || '/');
+  const cwd = String(req.query.cwd || DEFAULT_CWD);
   const staged = String(req.query.staged || '') === 'true';
   // `files` reaches a shell string, so every path is escaped individually and
   // fenced behind `--`; without the fence a path like `--upload-pack=...` would
@@ -55,7 +60,7 @@ router.get('/git/diff', checkLocalAccess, async (req, res) => {
 });
 
 router.post('/git/add', checkLocalAccess, async (req, res) => {
-  const { cwd = env.CONTAINER_HOME || '/', files = [] } = req.body || {};
+  const { cwd = DEFAULT_CWD, files = [] } = req.body || {};
   const filesArg = Array.isArray(files) && files.length > 0 ? files.map((item) => escapeShellArg(item)).join(' ') : '-A';
   const result = await runGit(`git add ${filesArg}`, cwd);
   if (result.exitCode !== 0) return res.status(500).json({ error: result.error, cwd });
@@ -63,7 +68,7 @@ router.post('/git/add', checkLocalAccess, async (req, res) => {
 });
 
 router.post('/git/commit', checkLocalAccess, async (req, res) => {
-  const { cwd = env.CONTAINER_HOME || '/', message, no_add = false } = req.body || {};
+  const { cwd = DEFAULT_CWD, message, no_add = false } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
   if (!no_add) {
     const addResult = await runGit('git add -A', cwd);
@@ -76,7 +81,7 @@ router.post('/git/commit', checkLocalAccess, async (req, res) => {
 });
 
 router.get('/git/log', checkLocalAccess, async (req, res) => {
-  const cwd = String(req.query.cwd || env.CONTAINER_HOME || '/');
+  const cwd = String(req.query.cwd || DEFAULT_CWD);
   const limit = Math.max(1, Math.min(Number(req.query.limit) || 10, 100));
   const result = await runGit(`git log --oneline -${limit}`, cwd);
   if (result.exitCode !== 0) return res.status(500).json({ error: result.error, cwd });
@@ -85,7 +90,7 @@ router.get('/git/log', checkLocalAccess, async (req, res) => {
 });
 
 router.post('/git/checkout', checkLocalAccess, async (req, res) => {
-  const { cwd = env.CONTAINER_HOME || '/', branch, create = false } = req.body || {};
+  const { cwd = DEFAULT_CWD, branch, create = false } = req.body || {};
   if (!branch) return res.status(400).json({ error: 'branch required' });
   const result = await runGit(`git checkout ${create ? '-b ' : ''}${escapeShellArg(branch)}`, cwd);
   if (result.exitCode !== 0) return res.status(500).json({ error: result.error, cwd });
@@ -93,21 +98,21 @@ router.post('/git/checkout', checkLocalAccess, async (req, res) => {
 });
 
 router.post('/git/pull', checkLocalAccess, async (req, res) => {
-  const { cwd = env.CONTAINER_HOME || '/', remote = 'origin', branch = '' } = req.body || {};
+  const { cwd = DEFAULT_CWD, remote = 'origin', branch = '' } = req.body || {};
   const result = await runGit(`git pull ${escapeShellArg(remote)} ${branch ? escapeShellArg(branch) : ''}`.trim(), cwd);
   if (result.exitCode !== 0) return res.status(500).json({ error: result.error, cwd });
   return res.json({ success: true, output: result.output, cwd });
 });
 
 router.post('/git/push', checkLocalAccess, async (req, res) => {
-  const { cwd = env.CONTAINER_HOME || '/', remote = 'origin', branch = '', force = false } = req.body || {};
+  const { cwd = DEFAULT_CWD, remote = 'origin', branch = '', force = false } = req.body || {};
   const result = await runGit(`git push ${force ? '--force ' : ''}${escapeShellArg(remote)} ${branch ? escapeShellArg(branch) : ''}`.trim(), cwd);
   if (result.exitCode !== 0) return res.status(500).json({ error: result.error, cwd });
   return res.json({ success: true, output: result.output, cwd });
 });
 
 router.post('/git/tag', checkLocalAccess, async (req, res) => {
-  const { cwd = env.CONTAINER_HOME || '/', action = 'list', tag, message } = req.body || {};
+  const { cwd = DEFAULT_CWD, action = 'list', tag, message } = req.body || {};
   if (action === 'list') {
     const result = await runGit('git tag --list', cwd);
     if (result.exitCode !== 0) return res.status(500).json({ error: result.error, cwd });
