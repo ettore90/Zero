@@ -6,39 +6,32 @@ import { test, expect, type Page } from '@playwright/test';
 // keystroke and taking the caret, the pending line break, the active style and
 // any list structure with it.
 
-// nginx serves a self-signed cert inside the compose network.
-test.use({ ignoreHTTPSErrors: true });
+// A desktop viewport is required: at Playwright's default 1280x720 the shell
+// collapses and the canvas rail is present but not visible.
+test.use({ ignoreHTTPSErrors: true, viewport: { width: 1920, height: 1080 } });
+test.setTimeout(120_000);
 
-const NOTE_EDITOR = '[role="textbox"][contenteditable="true"]';
-
-// SKIPPED: openSessionNote() below is a guess. Logging in works, but after
-// Open Session this app renders only the text "AGENTS" with no visible buttons
-// under headless Chromium, so the right panel and its "Session notes" section
-// were never reachable from a test. The four cases are the real regression
-// cover for the RichNotesEditor rebuild loop -- unskip them once the path to
-// open a session note is known, and fix openSessionNote to follow it.
-test.describe.configure({ mode: 'serial' });
-test.skip(true, 'needs a known UI path to open a session note');
+const NOTE_EDITOR = '[contenteditable="true"]';
 
 async function openSessionNote(page: Page) {
-  await page.goto('');  // '' keeps the baseURL path; '/' would drop /zero/
-  await expect(page.locator('#root')).toBeVisible();
+  await page.goto('');
+  await page.locator('select').first().selectOption('ettore');
+  await page.getByRole('button', { name: 'Open Session' }).click();
+  await page.getByRole('button', { name: 'Agents' }).waitFor({ state: 'visible', timeout: 30000 });
 
-  const pickUser = page.getByText('Select user', { exact: true });
-  if (await pickUser.isVisible().catch(() => false)) {
-    await page.getByText('ettore', { exact: true }).first().click();
-  }
+  // A chat session is already open on load, so the canvas rail's Notes button
+  // has a target and no agent needs to be picked first.
+  // First click on the rail icon opens the list of available notes.
+  const rail = page.locator('[aria-label="Notes"]:visible').first();
+  await rail.waitFor({ state: 'visible', timeout: 20000 });
+  await rail.click();
 
-  await expect(page.getByText('Session notes', { exact: true })).toBeVisible({ timeout: 30000 });
-
-  const toggle = page.getByRole('button', { name: /session notes/i }).first();
-  if (await toggle.isVisible().catch(() => false)) {
-    const label = await toggle.getAttribute('aria-label');
-    if (label && /enable/i.test(label)) await toggle.click();
-  }
+  // Then either create one or open the first existing note.
+  const create = page.getByRole('button', { name: /new note|nova nota|create note|\+/i }).first();
+  if (await create.isVisible().catch(() => false)) await create.click();
 
   const editor = page.locator(NOTE_EDITOR).first();
-  await expect(editor).toBeVisible({ timeout: 15000 });
+  await editor.waitFor({ state: 'visible', timeout: 20000 });
   await editor.click();
   await page.keyboard.press('Control+a');
   await page.keyboard.press('Delete');
@@ -64,12 +57,35 @@ test('Enter keeps both lines and leaves the caret on the second', async ({ page 
 test('bold applies to the selection and survives further typing', async ({ page }) => {
   const editor = await openSessionNote(page);
 
+  // A fresh note opens as an <h1>, whose text is already bold -- pressing Bold
+  // there would toggle weight *off*. Drop to normal text first so the assertion
+  // measures what a user would call bold.
+  await page.getByRole('button', { name: 'Normal text' }).click();
   await page.keyboard.type('antes ');
-  await page.getByRole('button', { name: /^bold$/i }).click();
+  await page.getByRole('button', { name: 'Bold' }).click();
   await page.keyboard.type('negrito');
 
-  const html = await editor.innerHTML();
-  expect(html).toMatch(/<(b|strong)>/i);
+  // Asserted on computed weight rather than on a <b> tag: the command emits a
+  // span with font-weight here, and either is correct as far as the user cares.
+  const weights = await editor.evaluate((root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const out: Record<string, number> = {};
+    let node = walker.nextNode();
+    while (node) {
+      const text = node.textContent?.trim() ?? '';
+      const el = node.parentElement;
+      if (text && el) {
+        out[text] = Number.parseInt(getComputedStyle(el).fontWeight, 10) || 400;
+      }
+      node = walker.nextNode();
+    }
+    return out;
+  });
+
+  const boldWeight = weights['negrito'];
+  const plainWeight = weights['antes'] ?? weights['antes '] ?? 400;
+  expect(boldWeight, `pesos medidos: ${JSON.stringify(weights)}`).toBeGreaterThanOrEqual(600);
+  expect(boldWeight).toBeGreaterThan(plainWeight);
   expect(await editor.innerText()).toContain('negrito');
 });
 
