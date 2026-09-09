@@ -100,7 +100,10 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
       <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={active && !disabled ? railActiveIconStyle : railInactiveIconStyle}>
         {icon}
       </svg>
-      {badge && <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-orange-400 animate-pulse" />}
+      {/* Static, not animate-pulse: on WebKit any continuously running CSS
+          animation adds ~10ms to per-keystroke input latency in the chat
+          input, and this badge can be showing while the user types. */}
+      {badge && <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-orange-400" />}
     </button>
   );
 
@@ -192,7 +195,7 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
               </>
             )}
           </svg>
-          {pendingApproval && !isCompactExpanded && <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-orange-400 animate-pulse" aria-hidden="true" />}
+          {pendingApproval && !isCompactExpanded && <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-orange-400" aria-hidden="true" />}
         </button>
       </div>
     );

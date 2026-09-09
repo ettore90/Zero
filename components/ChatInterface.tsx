@@ -716,7 +716,18 @@ const ChatPanel: React.FC<ChatPanelProps> = memo(({
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 pb-6 md:pb-24 space-y-5 scroll-smooth custom-scrollbar relative min-h-0">
         {history.length === 0 && !agent.summary && (
           <div className="absolute inset-0 flex flex-col items-center justify-center opacity-30 select-none pointer-events-none">
-            <div className="w-16 h-16 rounded-2xl mb-4 shadow-2xl animate-pulse" style={{ background: agent.color }} />
+            {/* Deliberately static. On WebKit -- the engine an iPad runs --
+                any continuously running CSS animation on this page costs about
+                10ms of the ~37ms per-keystroke latency in the chat input,
+                because every keystroke's paint queues behind the animation's
+                frame. Measured: animation:none 37->27ms, paused 28ms,
+                display:none 26ms. It is the animation itself, not this
+                element's shadow (-1ms) and not a missing compositing layer
+                (will-change: -1ms); even a transform-only keyframe costs the
+                full 10ms. Chromium shows none of this. Decorative infinite
+                animations therefore stay off; the ones that report live state
+                (generation dots, spinners) only run while generating. */}
+            <div className="w-16 h-16 rounded-2xl mb-4 shadow-2xl" style={{ background: agent.color }} />
             <h3 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-widest">{agent.name}</h3>
             <p className="text-xs font-mono text-slate-500 mt-1">Ready for instructions</p>
           </div>
