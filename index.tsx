@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { installPerfProbe } from './utils/perfProbe';
 
 declare global {
   interface Window {
@@ -185,6 +186,10 @@ if (!rootElement) {
   showFatalScreen('Application failed to start', error.message);
   throw error;
 }
+
+// Inert unless the URL carries ?perfprobe=1. Installed before React mounts so
+// the very first keystrokes are measured too. See utils/perfProbe.ts.
+installPerfProbe();
 
 try {
   const root = ReactDOM.createRoot(rootElement);
