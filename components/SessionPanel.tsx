@@ -190,4 +190,4 @@ const SessionPanel: React.FC<SessionPanelProps> = ({
   );
 };
 
-export default SessionPanel;
+export default React.memo(SessionPanel);

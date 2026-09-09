@@ -758,7 +758,7 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
   );
 };
 
-export default ProjectPanel;
+export default React.memo(ProjectPanel);
 
 // ---------------------------------------------------------------------------
 // Tree helpers (pure functions)

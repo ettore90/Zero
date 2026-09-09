@@ -156,14 +156,63 @@ const Layout: React.FC<LayoutProps> = ({
   // Fix Chrome mobile viewport height — lock to window.innerHeight to prevent layout jump
   const [vh, setVh] = useState<number | null>(null);
   useEffect(() => {
-    const update = () => {
-      setVh(window.innerHeight);
-      document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
+    // On a tablet the on-screen keyboard fires `resize` *while typing*: its
+    // suggestion strip appears and disappears per keystroke, moving
+    // innerHeight by a few dozen pixels. Re-locking the root height on each of
+    // those re-renders this component and every panel it hosts -- agent,
+    // session and project panels, all mounted twice (mobile + desktop) and
+    // ~200 agent rows in total. Measured at 6x CPU throttling that is ~108ms
+    // of main-thread blocking per resize, which is the stutter felt on a
+    // tablet and nowhere else (a desktop fires no resize while typing).
+    // The browser's own relayout is not the problem: measured flat at 0.3ms
+    // even with 538k chars of chat in the DOM.
+    //
+    // So while a text field is focused, only large changes are honoured —
+    // opening/closing the keyboard and rotating the device move the viewport
+    // by hundreds of pixels, the suggestion strip by far less.
+    const KEYBOARD_NOISE_PX = 120;
+    let frame: number | null = null;
+    let locked = window.innerHeight;
+
+    const apply = () => {
+      frame = null;
+      locked = window.innerHeight;
+      setVh(locked);
     };
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
+    const schedule = () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(apply);
+    };
+    const isTypingTarget = (el: Element | null) => {
+      if (!el) return false;
+      return el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || (el as HTMLElement).isContentEditable;
+    };
+    const onResize = () => {
+      if (isTypingTarget(document.activeElement) && Math.abs(window.innerHeight - locked) < KEYBOARD_NOISE_PX) return;
+      schedule();
+    };
+
+    apply();
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', schedule);
+    // Catch up once the field loses focus, so a height skipped above cannot
+    // leave the app sized for a keyboard that is no longer on screen.
+    window.addEventListener('focusout', schedule);
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', schedule);
+      window.removeEventListener('focusout', schedule);
+    };
   }, []);
+
+  // Stable identities so the memoized panels below are not re-rendered by
+  // this component's own state (viewport lock, notification popover, menus).
+  const navigateToChat = React.useCallback(() => { onSetView('chat'); }, [onSetView]);
+  const selectProjectFromMobile = React.useCallback((id: string) => {
+    onSelectProject(id);
+    toggleProjectPanel();
+  }, [onSelectProject, toggleProjectPanel]);
 
   const closeAuxPanelsForMainView = React.useCallback(() => {
     if (isProjectPanelOpen) toggleProjectPanel();
@@ -364,7 +413,7 @@ const Layout: React.FC<LayoutProps> = ({
           onDeleteSession={onDeleteSession}
           onRenameSession={onRenameSession}
           onNewSession={onNewSession}
-          onNavigateToChat={() => { onSetView('chat'); }}
+          onNavigateToChat={navigateToChat}
           onClose={toggleSessionPanel}
         />
       </div>
@@ -640,7 +689,7 @@ const Layout: React.FC<LayoutProps> = ({
           onDeleteSession={onDeleteSession}
           onRenameSession={onRenameSession}
           onNewSession={onNewSession}
-          onNavigateToChat={() => { onSetView('chat'); }}
+          onNavigateToChat={navigateToChat}
           onClose={toggleSessionPanel}
         />
       </div>
@@ -672,7 +721,7 @@ const Layout: React.FC<LayoutProps> = ({
         <ProjectPanel
           projects={projects}
           activeProjectId={activeProjectId}
-          onSelectProject={(id) => { onSelectProject(id); toggleProjectPanel(); }}
+          onSelectProject={selectProjectFromMobile}
           onAddProject={onAddProject}
           onEditProject={onEditProject}
           onDeleteProject={onDeleteProject}

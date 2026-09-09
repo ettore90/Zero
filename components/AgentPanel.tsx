@@ -26,4 +26,6 @@ const AgentPanel: React.FC<AgentPanelProps> = ({ agents, activeAgentId, onSelect
   );
 };
 
-export default AgentPanel;
+// Rendered by Layout (twice: mobile + desktop) with ~60 agent rows each, so any
+// Layout-local state change would otherwise re-render the whole list.
+export default React.memo(AgentPanel);
