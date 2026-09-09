@@ -117,8 +117,98 @@ function getClosestBlockTag(): 'p' | 'h1' | 'h2' | 'ul' | 'ol' | '' {
   return (block?.tagName.toLowerCase() as 'p' | 'h1' | 'h2' | 'ul' | 'ol' | undefined) ?? '';
 }
 
+// The stored value must be exactly what the browser produced. This used to
+// rewrite <div><br></div> into <br />, which meant every line break made the
+// state disagree with the DOM, forcing the controlled-value effect to rebuild
+// the editor and lose the caret. It also changed the rendering: <div><br></div>
+// is a block, <br /> is an inline break.
 function sanitizeHtml(html: string) {
-  return html.replace(/<div><br><\/div>/g, '<br />');
+  return html;
+}
+
+// Offsets survive an innerHTML rebuild; a Range does not, because every node it
+// points at is destroyed. Only syncEditorContent needs this -- the toolbar's
+// saveSelection/restoreSelection pair works on a live DOM and stays as it is.
+function getCaretOffset(root: HTMLElement): number | null {
+  if (typeof window === 'undefined') return null;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer)) return null;
+  const probe = range.cloneRange();
+  probe.selectNodeContents(root);
+  probe.setEnd(range.startContainer, range.startOffset);
+  return probe.toString().length;
+}
+
+function setCaretOffset(root: HTMLElement, offset: number) {
+  if (typeof window === 'undefined') return;
+  const selection = window.getSelection();
+  if (!selection) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  let node = walker.nextNode();
+  while (node) {
+    const length = node.textContent?.length ?? 0;
+    if (remaining <= length) {
+      const range = document.createRange();
+      range.setStart(node, remaining);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
+    remaining -= length;
+    node = walker.nextNode();
+  }
+  // Offset past the end (content shrank): land at the very end.
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+// Structural tags worth keeping on paste. Everything else is unwrapped rather
+// than dropped, so the text survives even when the source markup does not.
+const PASTE_ALLOWED_TAGS = new Set([
+  'P', 'BR', 'DIV', 'H1', 'H2', 'H3', 'UL', 'OL', 'LI',
+  'B', 'STRONG', 'I', 'EM', 'U', 'S', 'CODE', 'PRE', 'BLOCKQUOTE', 'A',
+  'TABLE', 'THEAD', 'TBODY', 'TR', 'TD', 'TH',
+]);
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// Pasted HTML arrives carrying the source's inline styles, classes, fonts and
+// wrapper spans. Keep the structure, drop every attribute except a safe href.
+function sanitizePastedHtml(html: string) {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+
+  const strip = (parent: ParentNode) => {
+    for (const child of Array.from(parent.children)) {
+      strip(child);
+      if (!PASTE_ALLOWED_TAGS.has(child.tagName)) {
+        child.replaceWith(...Array.from(child.childNodes));
+        continue;
+      }
+      for (const attr of Array.from(child.attributes)) {
+        const isSafeHref =
+          child.tagName === 'A' &&
+          attr.name === 'href' &&
+          /^(https?:|mailto:|#|\/)/i.test(attr.value.trim());
+        if (!isSafeHref) child.removeAttribute(attr.name);
+      }
+    }
+  };
+
+  strip(template.content);
+  return template.innerHTML;
 }
 
 function getTableCellInfo(): TableCellInfo | null {
@@ -330,6 +420,8 @@ export function RichNotesEditor({
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashPosition, setSlashPosition] = useState({ top: 0, left: 0 });
   const selectionRef = useRef<Range | null>(null);
+  // Held while Shift is down, so Shift+V pastes unformatted text.
+  const plainPasteRef = useRef(false);
   const slashCommandRangeRef = useRef<Range | null>(null);
   const colorPickerRef = useRef<HTMLDivElement | null>(null);
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
@@ -352,9 +444,10 @@ export function RichNotesEditor({
   const syncEditorContent = useCallback((nextHtml: string) => {
     const el = editorRef.current;
     if (!el || el.innerHTML === nextHtml) return;
-    const selection = saveSelection();
+    const hadFocus = el === document.activeElement || el.contains(document.activeElement);
+    const caret = hadFocus ? getCaretOffset(el) : null;
     el.innerHTML = nextHtml;
-    restoreSelection(selection);
+    if (caret !== null) setCaretOffset(el, caret);
   }, []);
 
   useEffect(() => {
@@ -368,8 +461,24 @@ export function RichNotesEditor({
     syncActiveState();
   }, [autoFocus, syncActiveState]);
 
+  // A ClipboardEvent carries no modifier state, so Shift is tracked separately
+  // to let Shift+V paste as unformatted text.
+  useEffect(() => {
+    const track = (event: KeyboardEvent) => { plainPasteRef.current = event.shiftKey; };
+    window.addEventListener('keydown', track);
+    window.addEventListener('keyup', track);
+    return () => {
+      window.removeEventListener('keydown', track);
+      window.removeEventListener('keyup', track);
+    };
+  }, []);
+
   const emitChange = useCallback(() => {
     const html = sanitizeHtml(editorRef.current?.innerHTML ?? '');
+    // Claim it as already synced. The DOM is this value's source, so the
+    // controlled-value effect must not push it back and rebuild the editor --
+    // that rebuild is what dropped line breaks, list structure and the caret.
+    lastSyncedValueRef.current = html;
     if (!isControlled) setInternalValue(html);
     onChange?.(html);
     syncActiveState();
@@ -825,6 +934,22 @@ export function RichNotesEditor({
             aria-multiline="true"
             data-placeholder={placeholder}
             onInput={onInput}
+            onPaste={(event) => {
+              if (disabled) return;
+              // Without this the browser inserts the source's markup verbatim,
+              // styles and wrapper spans included. Shift+paste forces plain text.
+              event.preventDefault();
+              const clipboard = event.clipboardData;
+              if (!clipboard) return;
+              const asHtml = clipboard.getData('text/html');
+              const asText = clipboard.getData('text/plain');
+              const payload =
+                asHtml && !plainPasteRef.current
+                  ? sanitizePastedHtml(asHtml)
+                  : escapeHtml(asText).replace(/\r?\n/g, '<br />');
+              document.execCommand('insertHTML', false, payload);
+              emitChange();
+            }}
             onClick={(event) => {
               const target = event.target as HTMLElement | null;
               const toggle = target?.closest('[data-note-task-toggle="true"]') as HTMLButtonElement | null;
