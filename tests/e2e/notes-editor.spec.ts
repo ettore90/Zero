@@ -26,9 +26,15 @@ async function openSessionNote(page: Page) {
   await rail.waitFor({ state: 'visible', timeout: 20000 });
   await rail.click();
 
-  // Then either create one or open the first existing note.
-  const create = page.getByRole('button', { name: /new note|nova nota|create note|\+/i }).first();
-  if (await create.isVisible().catch(() => false)) await create.click();
+  // "New" creates a note and opens it in the canvas. This has to be explicit:
+  // relying on whatever note the canvas happened to have open made the suite
+  // flaky, since on a fresh session there is no editor to find at all.
+  // Each run therefore leaves one note behind.
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+
+  // New creates and selects the note but does not open it; the row has to be
+  // clicked to load it into the canvas editor.
+  await page.getByRole('button', { name: /^Session note/ }).first().click();
 
   const editor = page.locator(NOTE_EDITOR).first();
   await editor.waitFor({ state: 'visible', timeout: 20000 });

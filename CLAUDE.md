@@ -38,8 +38,51 @@ npm run test:promotion       # separate promotion gate, NOT the smoke entrypoint
 ```
 
 There is no unit test runner/framework in this repo (no jest/vitest). Correctness is validated via the
-`validate:api` smoke script and Playwright E2E specs in `tests/e2e/`. To run a single Playwright test:
-`npx playwright test tests/e2e/smoke.spec.ts -g "<test name>"`.
+`validate:api` smoke script and Playwright E2E specs in `tests/e2e/`.
+
+## How to test a change
+
+**Test against the live `zero` build, not a separate environment.** A `green` stack exists, but since
+changes here are git-controlled and the runtime no longer self-modifies, mirroring them into another
+environment first buys nothing. Build the change, deploy it, exercise it live; if it does not hold up,
+roll the commit back or fix forward. Do not stand up parallel containers or copy the database to
+"test safely" — that was the old, self-modifying workflow.
+
+Deploy is `../zero-deploy.sh` (from `~/Software/Uby`). It rebuilds from `zero-source`, which it
+syncs with `git reset --hard origin/main` — **so a change must be committed AND pushed before it can
+be deployed.** A code change on disk is never live until that. The script ends with
+`docker image prune -a --filter until=24h`, which sweeps the whole daemon; pass `SKIP_IMAGE_PRUNE=1`
+to skip it. Docker lives on `/mnt/storage`, a different filesystem from `/`.
+
+### Running Playwright
+
+Run the specs **inside the `playwright-runner` container**, which has the browsers and the same
+Playwright version, and sits on the compose network:
+
+```bash
+docker exec -w /uby/zero playwright-runner npx playwright test tests/e2e/ --reporter=line
+```
+
+`npm run test:e2e` from the host needs `npx playwright install` first (~150MB) and cannot resolve
+`https://nginx/`. Four things will otherwise waste time:
+
+- **Use `page.goto('')`, never `page.goto('/')`.** An absolute path discards the baseURL's `/zero/`
+  prefix and silently loads a different app with an empty `#root`.
+- **Set a desktop viewport** (`viewport: { width: 1920, height: 1080 }`). At Playwright's default
+  1280x720 the shell collapses to a compact layout: the nav controls and the canvas rail are in the
+  DOM but not visible, which looks exactly like "the app renders nothing".
+- **Set `ignoreHTTPSErrors: true`** — nginx serves a self-signed cert inside the network.
+- **Raise the per-test timeout.** The config's 30s covers the whole test, and the shell needs several
+  seconds to mount after Open Session.
+
+Auth is a `<select>` of existing users plus an `Open Session` button; a chat session is already open
+once the shell mounts. To reach the notes editor: click the canvas rail's `Notes` button on the right
+edge, then `New`, then the created row (New selects a note but does not open it).
+
+**When a selector fight starts, take a screenshot and look at it** (`page.screenshot`, then read the
+PNG) instead of guessing at locators. That resolves in one step what costs a dozen blind iterations.
+
+Note that `notes-editor.spec.ts` leaves one empty session note behind per test.
 
 ## Runtime shape
 
