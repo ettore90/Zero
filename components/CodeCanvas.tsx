@@ -205,28 +205,28 @@ const SessionNoteSurface: React.FC<{
 
   return (
     <div ref={surfaceRef} className={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${tab.isWriting ? 'ring-2 ring-nebula-500/30 ring-inset' : ''}`}>
-      <div className="relative flex min-w-0 items-center justify-between gap-4 border-b border-slate-200/80 bg-white px-4 py-3 dark:border-slate-700/80 dark:bg-[#252526]">
+      <div className="relative flex min-w-0 items-center justify-between gap-4 border-b border-slate-200 bg-slate-100 px-4 py-2 dark:border-[#3e3e3e] dark:bg-[#252526]">
         <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-[0.32em] text-slate-500 dark:text-slate-500">Session Note</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-500">Session Note</div>
           <div className="mt-1 flex items-center gap-2 min-w-0">
             <input
               value={draftTitle}
               onChange={e => setDraftTitle(e.target.value)}
-              className="min-w-0 max-w-[28rem] truncate rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold tracking-[-0.02em] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-nebula-300 focus:bg-white/80 dark:text-slate-100 dark:focus:border-nebula-500 dark:focus:bg-slate-800/70"
+              className="min-w-0 max-w-[28rem] truncate rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[15px] font-semibold tracking-[-0.02em] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-nebula-500 focus:bg-white dark:text-slate-100 dark:focus:border-nebula-500 dark:focus:bg-[#2d2d2e]"
               placeholder="Session note"
               aria-label="Rename session note"
             />
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.2em] text-slate-500 dark:text-slate-500">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.2em] text-slate-500 dark:text-slate-500">
             <span className={`h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
             <span>{isDirty ? 'Unsaved changes' : 'Saved'}</span>
-            <span className="text-nebula-300 dark:text-slate-600">•</span>
+            <span className="text-slate-400 dark:text-slate-600">•</span>
             <span>Ctrl/Cmd+S</span>
           </div>
         </div>
         <button
           onClick={handleSave}
-          className="inline-flex items-center gap-2 rounded-lg border border-nebula-100 bg-white px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-nebula-800 shadow-[0_10px_24px_-18px_rgba(15,23,42,0.18)] transition hover:-translate-y-[1px] hover:border-nebula-500/35 hover:bg-nebula-50 dark:border-slate-600 dark:bg-slate-800 dark:text-nebula-100 dark:shadow-[0_10px_24px_-18px_rgba(0,0,0,0.55)] dark:hover:border-nebula-500/45 dark:hover:bg-slate-700"
+          className="inline-flex shrink-0 items-center gap-2 rounded bg-nebula-800 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-white transition-colors hover:bg-nebula-900 dark:bg-nebula-600 dark:hover:bg-nebula-500"
           title="Save note (Ctrl/Cmd+S)"
         >
           <span className={`h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
