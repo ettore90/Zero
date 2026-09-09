@@ -1,15 +1,24 @@
 /**
  * On-device input-latency probe.
  *
- * Why this exists: typing in the chat lags on a tablet with an external
- * keyboard, and that does not reproduce on the Linux WebKit/Chromium builds
- * available here -- measured from this machine the chat input already sits at
- * the engine's floor. So the measurement has to happen on the device that
- * actually shows the symptom.
+ * Why this exists: typing in the chat lagged on a tablet with an external
+ * keyboard, and that did not reproduce on any browser available on the dev
+ * machine. This measures on the device that actually shows a symptom.
+ *
+ * What it found, for the record: nothing in this app was responsible. On the
+ * affected device a 13-node static page holding one bare textarea -- no React,
+ * no Tailwind, none of this codebase -- measured a 94ms median, while the full
+ * app measured 88ms. Every variant below came back inside noise (85/86/84/89).
+ * Safari on the same device with the same keyboard had no lag at all, so it is
+ * Chrome-on-iOS input handling with an external keyboard, not something the
+ * page can fix. Kept because it is the only way to tell that apart, and
+ * because inference from the dev machine got it wrong three times.
  *
  * Inert unless the URL carries `?perfprobe=1`, so it costs nothing in normal
  * use. Open the app on the device with that parameter, type a couple of
- * sentences, and read the overlay.
+ * sentences, and read the overlay. (It used to POST to /api/perf-probe so the
+ * numbers could be read server-side; that route was removed once the question
+ * was answered, since it accepted unauthenticated writes.)
  *
  * Metric: time from `keydown` to the second animation frame after it, i.e.
  * roughly "when did the character actually get painted". Reported as a median
@@ -31,8 +40,6 @@
  * The overlay only repaints once typing has paused, so it cannot contaminate
  * the numbers it reports.
  */
-
-import { NEBULA_API_BASE } from '../constants';
 
 const SAMPLE_CAP = 120;
 const IDLE_REDRAW_MS = 400;
@@ -137,39 +144,11 @@ export function installPerfProbe() {
   panel.appendChild(readout);
   panel.appendChild(buttons);
 
-  // Posted to the backend as well as shown, so the numbers can be read from
-  // the machine running the app instead of transcribed off a tablet screen.
-  // Fire-and-forget: a failure here must never disturb the page being measured.
-  const report = () => {
-    if (samples.length < 5) return;
-    const sorted = [...samples].sort((a, b) => a - b);
-    const body = {
-      label: 'chat-input',
-      variants: active.size ? Array.from(active).join(',') : 'none',
-      samples: samples.length,
-      median: percentile(sorted, 0.5),
-      p90: percentile(sorted, 0.9),
-      max: sorted[sorted.length - 1],
-      animations: document.getAnimations().length,
-      domNodes: document.querySelectorAll('*').length,
-      msgLists: document.querySelectorAll(MSG_LIST_SELECTOR).length,
-      field: lastTarget,
-      viewport: `${window.innerWidth}x${window.innerHeight}`,
-    };
-    fetch(`${NEBULA_API_BASE}/perf-probe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      keepalive: true,
-    }).catch(() => {});
-  };
-
   let redrawTimer: number | null = null;
   const redraw = () => {
     redrawTimer = null;
     applyDomVariants(active);
     readout.textContent = summary();
-    report();
   };
   // Debounced: nothing here repaints while a typing burst is in flight, so the
   // overlay cannot inflate the latency it is measuring.

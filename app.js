@@ -26,7 +26,6 @@ import streamRoutes from './routes/stream.routes.js';
 import ollamaRoutes from './routes/ollama.routes.js';
 import nebulaRoutes from './routes/nebula.routes.js';
 import workflowRunsRoutes from './routes/workflow-runs.routes.js';
-import perfProbeRoutes from './routes/perf-probe.routes.js';
 import usageRoutes from './routes/usage.routes.js';
 import jiraRoutes from './routes/jira.routes.js';
 import transcriptionRoutes from './routes/transcription.routes.js';
@@ -47,7 +46,6 @@ export function createApp() {
 
   for (const prefix of apiPrefixes) {
     app.use(prefix, systemRoutes);
-    app.use(prefix, perfProbeRoutes);
     app.use(prefix, gitRoutes);
     app.use(prefix, memoryRoutes);
     app.use(prefix, llmRoutes);
