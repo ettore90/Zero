@@ -97,23 +97,39 @@ function rowToMemory(row) {
   };
 }
 
+// The model's context is ~2048 tokens and how many characters fit depends on
+// the content, so a long memory used to fail outright and save with no vector
+// at all -- silently, since every error is swallowed here. Step the length down
+// until it is accepted. The 3s budget was also too tight for long input.
+const EMBEDDING_LENGTH_CAPS = [Infinity, 6000, 3000, 1500, 800];
+
 async function generateEmbedding(content, fetchWithRetry, ollamaServer) {
   if (!fetchWithRetry || !ollamaServer || !content) return null;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3000);
-    const response = await fetchWithRetry(`${ollamaServer}/api/embeddings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'nomic-embed-text', prompt: content }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    const data = await response.json();
-    return Array.isArray(data?.embedding) ? data.embedding : null;
-  } catch {
-    return null;
+  for (const cap of EMBEDDING_LENGTH_CAPS) {
+    const prompt = cap === Infinity ? content : String(content).slice(0, cap);
+    if (!prompt) continue;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      let response;
+      try {
+        response = await fetchWithRetry(`${ollamaServer}/api/embeddings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'nomic-embed-text', prompt }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (response && response.ok === false) continue;
+      const data = await response.json();
+      if (Array.isArray(data?.embedding) && data.embedding.length > 0) return data.embedding;
+    } catch {
+      // Too long, unreachable, or unparseable -- try a smaller cap.
+    }
   }
+  return null;
 }
 
 export async function rememberMemory({

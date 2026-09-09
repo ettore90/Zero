@@ -3,6 +3,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { getDb } from '../db.js';
+import { generateEmbedding } from '../services/embeddingService.js';
 
 const router = Router();
 
@@ -98,7 +99,7 @@ router.get('/memory/list', checkLocalAccess, (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /memory/add
 // ---------------------------------------------------------------------------
-router.post('/memory/add', checkLocalAccess, (req, res) => {
+router.post('/memory/add', checkLocalAccess, async (req, res) => {
   const db = getDb();
   const {
     content,
@@ -140,7 +141,13 @@ router.post('/memory/add', checkLocalAccess, (req, res) => {
   const id = `mem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const now = Math.floor(Date.now() / 1000);
   const normalizedTags = Array.isArray(tags) ? tags : [tags].filter(Boolean);
-  const embeddingStr = Array.isArray(embedding) && embedding.length > 0 ? JSON.stringify(embedding) : null;
+  // Callers rarely have a vector to hand, and a memory stored without one is
+  // invisible to semantic recall -- only a literal keyword match finds it. That
+  // is how 93% of this store ended up unretrievable. Generate it here.
+  const resolvedEmbedding =
+    Array.isArray(embedding) && embedding.length > 0 ? embedding : await generateEmbedding(content);
+  const embeddingStr =
+    Array.isArray(resolvedEmbedding) && resolvedEmbedding.length > 0 ? JSON.stringify(resolvedEmbedding) : null;
 
   const normalizedScope = scope === 'user' || category === 'behavior' || category === 'state' || category === 'issue' ? 'user' : 'global';
 
@@ -176,9 +183,15 @@ router.post('/memory/add', checkLocalAccess, (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /memory/search
 // ---------------------------------------------------------------------------
-router.post('/memory/search', checkLocalAccess, (req, res) => {
+router.post('/memory/search', checkLocalAccess, async (req, res) => {
   const db = getDb();
   const { query = '', embedding = null, limit = 5, threshold = 0.1, category, tags } = req.body || {};
+
+  // Without a vector this degrades to substring matching, which misses any
+  // paraphrase. Deriving it from the query makes a plain {query} request
+  // semantic, instead of requiring the caller to embed it first.
+  const resolvedEmbedding =
+    Array.isArray(embedding) && embedding.length > 0 ? embedding : await generateEmbedding(query);
 
   const tagList = tags ? (Array.isArray(tags) ? tags : [tags]).filter(Boolean) : [];
 
@@ -203,8 +216,8 @@ router.post('/memory/search', checkLocalAccess, (req, res) => {
   // Score
   results = results
     .map(item => {
-      const vectorScore = Array.isArray(embedding) && Array.isArray(item.embedding)
-        ? cosineSimilarity(embedding, item.embedding)
+      const vectorScore = Array.isArray(resolvedEmbedding) && Array.isArray(item.embedding)
+        ? cosineSimilarity(resolvedEmbedding, item.embedding)
         : 0;
       const textScore = query
         ? keywordScore(query, `${item.content} ${item.tags.join(' ')}`)
