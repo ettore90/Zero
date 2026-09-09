@@ -7,13 +7,19 @@ import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { env } from '../config/env.js';
 import { containerToHost } from '../utils/pathTransforms.js';
 import { escapeShellArg } from '../utils/ssh.js';
-import { BASH_BIN } from '../utils/shell.js';
+import { BASH_BIN, firstExistingDir } from '../utils/shell.js';
 
 const router = Router();
 const execAsync = promisify(execCb);
 
 async function runGit(command, cwd) {
-  const hostCwd = containerToHost(cwd || env.CONTAINER_HOME || '/', env);
+  // These commands run inside the container, so the container path is the
+  // correct cwd; the containerToHost translation is kept only as a fallback for
+  // callers that pass a host path. Either may be unmounted, hence the guard --
+  // spawning with a missing cwd surfaces as a misleading `ENOENT` on the shell.
+  const requested = cwd || env.CONTAINER_APP_ROOT || '/';
+  const hostCwd =
+    firstExistingDir(requested, containerToHost(requested, env), env.CONTAINER_APP_ROOT, '/app', '/') || '/';
   try {
     const { stdout, stderr } = await execAsync(command, { cwd: hostCwd, shell: BASH_BIN, timeout: 180000, maxBuffer: 20 * 1024 * 1024, env: process.env });
     return { output: stdout || '', error: stderr || '', exitCode: 0, cwd };

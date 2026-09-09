@@ -47,9 +47,11 @@ zero_get  /usage/daily?year=2026\&month=9
 zero_post /memory/delete '{"id":123}'
 ```
 
-`zero_post` always sends a body — several routes destructure `req.body` without a default and
-**crash on a bodyless POST** (`/workflow-runs/cancel`, `/agent/stop`, `/alerts/read`,
-`/migrate`). Pass `'{}'` when you have nothing to send.
+`zero_post` always sends a body. Many routes destructure `req.body` without a `|| {}` default,
+but `express.json()` sets it to `{}` anyway, so a bodyless POST does **not** crash — verified
+against `/alerts/read`, `/migrate`, `/agent/stop` and `/workflow-runs/cancel`, which all answer
+identically with no body, an empty JSON content-type, and `{}`. Sending `'{}'` is still the tidy
+default.
 
 Env overrides: `ZERO_BASE`, `ZERO_USER`.
 
@@ -159,7 +161,6 @@ supplies its own `Authorization`, so it is not a key-hiding gateway).
 ## Known broken
 
 - **The default working directory does not exist in the container.** `HOST_HOME=/home/ettore` and `CONTAINER_HOME=/host_system` are both unmounted paths, so `containerToHost`/`hostToContainer` in `utils/pathTransforms.js` translate into directories that are not there. Practical effect: `/system/exec`, `/system/python` and `/git/*` fail with `spawn /bin/bash ENOENT` when no `cwd` is given — that ENOENT is the missing **cwd**, not a missing shell. **Always pass an explicit `cwd`** (`/app`, or a path under `/uby`). The real fix is pointing `CONTAINER_HOME` at `/uby` or adding the mount.
-- Bodyless POSTs crash on `/workflow-runs/cancel`, `/agent/stop`, `/alerts/read`, `/migrate` — always send at least `{}`.
 - `/nebula/*` is a 501 stub, and a path bug puts it at `/nebula/nebula/*`. `routes/static.routes.js` is dead code, never mounted. `POST /admin/digest` is a hard-coded stub.
 
 ## Adding an endpoint

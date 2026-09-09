@@ -48,6 +48,12 @@ export const env = {
   ADMIN_IPS: getEnv('ADMIN_IPS', '::1,127.0.0.1,::ffff:127.0.0.1').split(','),
   HOST_HOME: getEnv('HOST_HOME', '/home/ettore'),
   CONTAINER_HOME: getEnv('CONTAINER_HOME', '/host_system'),
+  // Consumed by utils/pathTransforms.js, which until now read them off an
+  // object that never declared them. HOST_WORKSPACE_ROOT is intentionally
+  // empty by default: without it the /uby <-> host mapping is a no-op
+  // rather than a wrong guess.
+  CONTAINER_APP_ROOT: getEnv('CONTAINER_APP_ROOT', '/uby'),
+  HOST_WORKSPACE_ROOT: getEnv('HOST_WORKSPACE_ROOT', ''),
   DEBUG_LLM: getEnv('DEBUG_LLM') === 'true',
   DEBUG_CONTEXT: getEnv('DEBUG_CONTEXT') === 'true',
   DEBUG_SESSION: getEnv('DEBUG_SESSION') === 'true',

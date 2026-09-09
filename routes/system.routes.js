@@ -7,7 +7,7 @@ import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { env } from '../config/env.js';
 import { containerToHost, hostToContainer, normalizeSlashes } from '../utils/pathTransforms.js';
 import { escapeShellArg } from '../utils/ssh.js';
-import { BASH_BIN } from '../utils/shell.js';
+import { BASH_BIN, firstExistingDir } from '../utils/shell.js';
 
 const router = Router();
 const execAsync = promisify(execCb);
@@ -107,7 +107,11 @@ function resolveCommandCwd(inputPath, agentId = 'terminal') {
       }
     } catch {}
   }
-  return { realPath: candidates[0] || publicPath, publicPath };
+  // No candidate exists. Handing that to spawn yields `spawn /bin/bash ENOENT`,
+  // so fall back to a directory that is actually mounted and let any real error
+  // come from the command itself.
+  const fallback = firstExistingDir(env.CONTAINER_APP_ROOT, '/app', '/');
+  return { realPath: fallback || candidates[0] || publicPath, publicPath };
 }
 
 async function runLocal(command, options = {}) {
