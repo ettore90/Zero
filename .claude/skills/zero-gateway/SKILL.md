@@ -117,23 +117,24 @@ Use `/uby/...` instead. For host paths outside `/uby`, use your own local Bash t
 `POST /system/exec` `{command*, cwd, agentId, env, timeout}` · `POST /system/python` `{code*, cwd, ...}`.
 
 Both run **unsandboxed as root inside the container** and return `{output, error, exitCode, cwd}`
-at HTTP 200 — a failure is in `error`/`exitCode`, never an error status. **Pass `cwd` explicitly**
-or they fail with `spawn /bin/bash ENOENT` (see Known broken). `timeout` is in seconds, clamped to
-1-600. `exec` special-cases `cd`, tracking a per-`agentId` working directory across calls.
+at HTTP 200 — a failure is in `error`/`exitCode`, never an error status. `timeout` is in seconds,
+clamped to 1-600. `exec` special-cases `cd`, tracking a per-`agentId` working directory across
+calls. `cwd` is optional and defaults to `/uby`; the response reports the directory the command
+actually ran in.
 
 ```bash
-zero_post /system/exec '{"command":"git log --oneline -3","cwd":"/uby/zero"}'
+zero_exec 'git log --oneline -3' /uby/zero
+zero_git_status /uby/zero
 ```
 
-Reaching the host filesystem this way only works for what is mounted: `/app` (the Zero checkout),
-`/app/storage`, and `/uby` (all of `~/Software/Uby`). For anything else on the host, use your own
-local Bash tools.
+Reaching the host filesystem only works for what is mounted: `/app` (the Zero checkout),
+`/app/storage`, and `/uby` (all of `~/Software/Uby`, read-write). For anything else on the host,
+use your own local Bash tools.
 
-**git under `/uby` refuses to run.** The container is root but those repos are owned by the host
-user (uid 1000), so any git command there dies with `fatal: detected dubious ownership in
-repository at '/uby/...'`. `/app` is fine (root-owned in the image). To work a host repo through
-Zero you would have to add each path to `safe.directory` in the image — until then, use your own
-local git.
+git works on all of it — the image registers `safe.directory` for `/app`, `/uby` and `/uby/*`,
+without which git rejects those repos as `dubious ownership` (the container is root; the repos
+belong to uid 1000). Note `/uby` itself is a git repo (`ettore90/Uby`), so a `/git/*` call with no
+`cwd` operates on **that** repo, not on Zero's.
 
 ### Sessions & history
 
@@ -160,7 +161,7 @@ supplies its own `Authorization`, so it is not a key-hiding gateway).
 
 ## Known broken
 
-- **The default working directory does not exist in the container.** `HOST_HOME=/home/ettore` and `CONTAINER_HOME=/host_system` are both unmounted paths, so `containerToHost`/`hostToContainer` in `utils/pathTransforms.js` translate into directories that are not there. Practical effect: `/system/exec`, `/system/python` and `/git/*` fail with `spawn /bin/bash ENOENT` when no `cwd` is given — that ENOENT is the missing **cwd**, not a missing shell. **Always pass an explicit `cwd`** (`/app`, or a path under `/uby`). The real fix is pointing `CONTAINER_HOME` at `/uby` or adding the mount.
+- **`HOST_HOME` and `CONTAINER_HOME` name paths that are not mounted.** `HOST_HOME=/home/ettore` and `CONTAINER_HOME=/host_system` are inherited from the `orchestrator` service, which mounts `/home/ettore:/host_system` — the `zero` service does not. So `containerToHost`/`hostToContainer` in `utils/pathTransforms.js` still translate into directories that do not exist. This no longer breaks the exec routes (they resolve their cwd through `firstExistingDir`), but any path *translation* is unreliable. `HOST_WORKSPACE_ROOT` is the var that would map `/uby` back to the host correctly, and it is unset.
 - `/nebula/*` is a 501 stub, and a path bug puts it at `/nebula/nebula/*`. `routes/static.routes.js` is dead code, never mounted. `POST /admin/digest` is a hard-coded stub.
 
 ## Adding an endpoint
