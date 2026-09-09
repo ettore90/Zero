@@ -3,6 +3,14 @@ WORKDIR /app
 
 RUN apk add --no-cache git openssh-client bash curl python3 py3-pip alpine-sdk
 
+# The container runs as root while the bind-mounted repos belong to the host
+# user (uid 1000), so git refuses them with "detected dubious ownership" and
+# every /git/* route fails. Scoped to the paths that are actually mounted
+# rather than the blanket '*'; the trailing /* prefix form needs git >= 2.36.
+RUN git config --system --add safe.directory '/app' \
+ && git config --system --add safe.directory '/uby' \
+ && git config --system --add safe.directory '/uby/*'
+
 COPY package*.json ./
 RUN npm ci
 
