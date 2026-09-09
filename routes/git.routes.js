@@ -7,6 +7,7 @@ import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { env } from '../config/env.js';
 import { containerToHost } from '../utils/pathTransforms.js';
 import { escapeShellArg } from '../utils/ssh.js';
+import { BASH_BIN } from '../utils/shell.js';
 
 const router = Router();
 const execAsync = promisify(execCb);
@@ -32,9 +33,16 @@ router.get('/git/status', checkLocalAccess, async (req, res) => {
 
 router.get('/git/diff', checkLocalAccess, async (req, res) => {
   const cwd = String(req.query.cwd || env.CONTAINER_HOME || '/');
-  const files = String(req.query.files || '').trim();
   const staged = String(req.query.staged || '') === 'true';
-  const result = await runGit(`git diff ${staged ? '--staged ' : ''}${files}`.trim(), cwd);
+  // `files` reaches a shell string, so every path is escaped individually and
+  // fenced behind `--`; without the fence a path like `--upload-pack=...` would
+  // still be read by git as an option.
+  const rawFiles = req.query.files;
+  const files = (Array.isArray(rawFiles) ? rawFiles : String(rawFiles || '').split(/\s+/))
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+  const pathspec = files.length > 0 ? ` -- ${files.map((item) => escapeShellArg(item)).join(' ')}` : '';
+  const result = await runGit(`git diff${staged ? ' --staged' : ''}${pathspec}`, cwd);
   if (result.exitCode !== 0) return res.status(500).json({ error: result.error, cwd });
   const lines = result.output.split('\n');
   return res.json({ diff: result.output, added: lines.filter((l) => l.startsWith('+') && !l.startsWith('+++')).length, removed: lines.filter((l) => l.startsWith('-') && !l.startsWith('---')).length, empty: !result.output.trim(), cwd });

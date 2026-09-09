@@ -7,6 +7,7 @@ import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { env } from '../config/env.js';
 import { containerToHost, hostToContainer, normalizeSlashes } from '../utils/pathTransforms.js';
 import { escapeShellArg } from '../utils/ssh.js';
+import { BASH_BIN } from '../utils/shell.js';
 
 const router = Router();
 const execAsync = promisify(execCb);

@@ -18,6 +18,7 @@ import { normalizePlanForStorage, persistPlanRecord } from './planState.js';
 import { broadcastToUser } from './streamBroker.js';
 import { createSubagentAudit, appendSubagentAuditLog, finalizeSubagentAudit, serializeJson } from './subagentAuditService.js';
 import http2 from 'http2';
+import { BASH_BIN } from '../utils/shell.js';
 
 const PROVIDER_URLS = {
   // Public canonical provider APIs may remain as safe fallbacks when no instance-specific baseUrl/env is configured.
@@ -50,8 +51,6 @@ function getCwd(agentId) {
 function setCwd(agentId, cwd) {
   if (agentId && cwd) agentCwd.set(agentId, cwd);
 }
-
-const BASH_BIN = fs.existsSync('/bin/bash') ? '/bin/bash' : '/bin/sh';
 
 export function flushApprovalContinuationIfIdle({ username, agentId, sessionId, modelId, timeoutMs } = {}) {
   const safeUsername = typeof username === 'string' ? username.trim() : '';

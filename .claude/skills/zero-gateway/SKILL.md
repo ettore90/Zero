@@ -135,11 +135,14 @@ supplies its own `Authorization`, so it is not a key-hiding gateway).
 
 ## Known broken
 
-- **`/system/exec`, `/system/python` and every `/git/*` route** throw `BASH_BIN is not defined`. `BASH_BIN` is a module-local `const` in `services/llmService.js:54` but referenced as a global at `routes/system.routes.js:118` and `routes/git.routes.js:17`. exec returns HTTP 200 with `{"error":"BASH_BIN is not defined","exitCode":1}`; git returns HTTP 500. `fs/*` is unaffected. Use local Bash, or fix the import.
 - **`CONTAINER_HOME=/host_system` points at an unmounted path.** The real bind is `/uby`, so `containerToHost`/`hostToContainer` in `utils/pathTransforms.js` translate into paths that do not exist. Either fix the env var to `/uby` or add the mount.
-- `GET /git/diff` interpolates its `files` query param into a shell string unescaped — command injection. Every other git route uses `escapeShellArg`. Fix before relying on it.
 - Bodyless POSTs crash on `/workflow-runs/cancel`, `/agent/stop`, `/alerts/read`, `/migrate` — always send at least `{}`.
 - `/nebula/*` is a 501 stub, and a path bug puts it at `/nebula/nebula/*`. `routes/static.routes.js` is dead code, never mounted. `POST /admin/digest` is a hard-coded stub.
+
+Fixed in-repo (live only after the container is rebuilt): the `BASH_BIN is not defined`
+crash that took out `/system/exec`, `/system/python` and every `/git/*` route — the constant now
+lives in `utils/shell.js` — and the unescaped `files` pathspec in `GET /git/diff`, which was a
+command injection.
 
 ## Adding an endpoint
 
