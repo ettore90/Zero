@@ -1889,7 +1889,10 @@ router.all('/jira/rest/*', checkLocalAccess, async (req, res) => {
   });
 
   res.status(result.status);
-  if (result.headers['content-type']) res.type(result.headers['content-type']);
+  for (const [name, value] of Object.entries(result.headers)) {
+    if (name === 'content-type') res.type(value);
+    else res.set(name, value);
+  }
   return res.send(result.body);
 });
 

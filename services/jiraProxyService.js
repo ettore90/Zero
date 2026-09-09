@@ -20,6 +20,15 @@ const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const ALLOWED_PATH_PREFIX = 'rest/';
 const REQUEST_TIMEOUT_MS = 60000;
 const MAX_RESPONSE_BYTES = 25 * 1024 * 1024;
+const PASSTHROUGH_RESPONSE_HEADERS = [
+  'x-ratelimit-limit',
+  'x-ratelimit-remaining',
+  'x-ratelimit-reset',
+  'x-ratelimit-interval-seconds',
+  'x-ratelimit-fillrate-seconds',
+  'retry-after',
+  'x-aretry-after',
+];
 
 /**
  * Canonical token resolution order:
@@ -134,13 +143,16 @@ export async function forwardToJira({ method = 'GET', path, query = '', body, to
       };
     }
 
-    return {
-      status: response.status,
-      headers: {
-        'content-type': response.headers.get('content-type') || 'application/json',
-      },
-      body: buffer,
-    };
+    // Rate-limit signals are the whole reason to prefer the API over the MCP,
+    // so they have to survive the hop. Everything else is dropped -- notably
+    // set-cookie, which must not leak back to the caller.
+    const headers = { 'content-type': response.headers.get('content-type') || 'application/json' };
+    for (const name of PASSTHROUGH_RESPONSE_HEADERS) {
+      const value = response.headers.get(name);
+      if (value) headers[name] = value;
+    }
+
+    return { status: response.status, headers, body: buffer };
   } catch (err) {
     const aborted = err?.name === 'AbortError';
     return {
