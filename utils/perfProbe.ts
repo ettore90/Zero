@@ -32,6 +32,8 @@
  * the numbers it reports.
  */
 
+import { NEBULA_API_BASE } from '../constants';
+
 const SAMPLE_CAP = 120;
 const IDLE_REDRAW_MS = 400;
 
@@ -135,11 +137,39 @@ export function installPerfProbe() {
   panel.appendChild(readout);
   panel.appendChild(buttons);
 
+  // Posted to the backend as well as shown, so the numbers can be read from
+  // the machine running the app instead of transcribed off a tablet screen.
+  // Fire-and-forget: a failure here must never disturb the page being measured.
+  const report = () => {
+    if (samples.length < 5) return;
+    const sorted = [...samples].sort((a, b) => a - b);
+    const body = {
+      label: 'chat-input',
+      variants: active.size ? Array.from(active).join(',') : 'none',
+      samples: samples.length,
+      median: percentile(sorted, 0.5),
+      p90: percentile(sorted, 0.9),
+      max: sorted[sorted.length - 1],
+      animations: document.getAnimations().length,
+      domNodes: document.querySelectorAll('*').length,
+      msgLists: document.querySelectorAll(MSG_LIST_SELECTOR).length,
+      field: lastTarget,
+      viewport: `${window.innerWidth}x${window.innerHeight}`,
+    };
+    fetch(`${NEBULA_API_BASE}/perf-probe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      keepalive: true,
+    }).catch(() => {});
+  };
+
   let redrawTimer: number | null = null;
   const redraw = () => {
     redrawTimer = null;
     applyDomVariants(active);
     readout.textContent = summary();
+    report();
   };
   // Debounced: nothing here repaints while a typing burst is in flight, so the
   // overlay cannot inflate the latency it is measuring.
