@@ -153,8 +153,13 @@ omit it entirely. Treat token counts as real, cost as advisory.
 
 ### Integrations
 
-`GET /jira/queue`, `POST /jira/action` (no `checkLocalAccess` at all; token via `x-jira-token`
-or the stored `JIRA_KEY`) · `POST /transcribe` (raw `audio/*` body, 10 MB cap) ·
+**Jira** — `ALL /jira/rest/*` is a credential-injecting passthrough to the Jira Cloud REST API:
+write the real Jira path, send no token, Zero attaches the stored one. **For anything Jira, load
+the `jira-api` skill** — it carries the endpoints, the JQL and pagination traps, and the limits.
+Zero also has `GET /jira/queue` (persists an issue snapshot to SQLite, returns counts) and
+`POST /jira/action` (six write ops); neither carries `checkLocalAccess`, the passthrough does.
+
+`POST /transcribe` (raw `audio/*` body, 10 MB cap) ·
 `POST /llm/complete` and `/ollama/*` (raw local-Ollama passthroughs, no DB keys) ·
 `POST /proxy` (the SSRF relay — see security posture; it injects **no** credentials, the caller
 supplies its own `Authorization`, so it is not a key-hiding gateway).
