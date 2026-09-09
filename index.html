@@ -472,35 +472,12 @@
       .dark .zero-note-callout-swatch-error { border-color: #fb7185; }
       .dark .zero-note-callout-swatch-success { border-color: #34d399; }
     </style>
-    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
-    <script>
-      tailwind.config = {
-        darkMode: 'class',
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-              mono: ['JetBrains Mono', 'monospace'],
-            },
-            colors: {
-              nebula: {
-                50: 'var(--nebula-50)',
-                100: 'var(--nebula-100)',
-                500: 'var(--nebula-500)',
-                600: 'var(--nebula-600)',
-                800: 'var(--nebula-800)',
-                900: 'var(--nebula-900)',
-              },
-              dark: {
-                800: '#18181b',
-                900: '#09090b',
-                950: '#020203',
-              }
-            }
-          }
-        }
-      }
-    </script>
+    <!-- Tailwind is compiled at build time now (see tailwind.config.js and
+         styles/tailwind.css). It used to be loaded here from the Play CDN,
+         which shipped the compiler to the browser and regenerated CSS on
+         every DOM mutation -- that took a 13-node page's p90 input latency
+         from 28ms to 150ms. The theme that was inline here now lives in
+         tailwind.config.js. -->
   <script type="importmap">
 {
   "imports": {

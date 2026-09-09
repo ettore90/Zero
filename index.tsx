@@ -1,3 +1,6 @@
+// Tailwind, compiled at build time. Replaces the Play CDN that index.html used
+// to load; see tailwind.config.js for why.
+import './styles/tailwind.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';

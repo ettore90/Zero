@@ -1,0 +1,10 @@
+/*
+ * Tailwind's entry point, compiled at build time by PostCSS.
+ *
+ * Replaces the Play CDN that index.html used to load: that shipped the whole
+ * compiler to the browser and re-generated CSS on every DOM mutation. See
+ * tailwind.config.js for the measurements.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
