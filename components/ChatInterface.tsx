@@ -765,6 +765,7 @@ type RailSessionNoteItem = {
   sessionId?: string | null;
   title?: string | null;
   contentHtml?: string | null;
+  updatedAt?: string | number | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -863,6 +864,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         sessionId: typeof (note as any).sessionId === 'string' ? (note as any).sessionId : null,
         title: typeof note.title === 'string' ? note.title : 'Session note',
         contentHtml: typeof note.contentHtml === 'string' ? note.contentHtml : null,
+        // Carried through so the notes list can sort newest-first and show an
+        // age; without it every row looks the same in a long-running session.
+        updatedAt: (note as any).updatedAt ?? null,
       }))
     : [], [sessionSnapshot.notes]);
 
@@ -903,7 +907,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const scratchPath = `.scratch/untitled-${nextIndex}.md`;
     canvas.openFile(scratchPath, '');
     canvas.setActiveCanvasTab('editor');
-    setIsCanvasProjectTreeSectionOpen(true);
+    // Every selection section has to close, the project tree included: while
+    // one is open the canvas renders the list panel, so opening the tree here
+    // hid the scratch pad that had just been created.
+    setIsCanvasProjectTreeSectionOpen(false);
     setIsCanvasSessionNotesSectionOpen(false);
     setIsCanvasApprovalsSectionOpen(false);
   }, [canvas]);

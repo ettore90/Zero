@@ -1,9 +1,10 @@
-import React, { Suspense, lazy, useRef } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef } from 'react';
 import { CanvasTab } from '../hooks/useCanvasState';
 import { Message, ToolCall } from '../types';
 import { isSessionNoteTab } from './CanvasRail';
 import RichNotesEditor from './RichNotesEditor';
 import StrategyPlanModal from './StrategyPlanModal';
+import { ZERO_MONACO_DARK, ZERO_MONACO_LIGHT, defineZeroMonacoThemes } from './canvas/monacoTheme';
 
 const MonacoEditor = lazy(() => import('@monaco-editor/react'));
 
@@ -251,6 +252,8 @@ export interface CodeCanvasProps {
   onEditAgent: () => void;
   onCreateSessionNote: () => void;
   onCollapseCanvas?: () => void;
+  isCanvasFullscreen?: boolean;
+  onToggleCanvasFullscreen?: () => void;
   tabs: CanvasTab[];
   activeTabId: string | null;
   activeTab: CanvasTab | null;
@@ -305,12 +308,36 @@ const MonacoLoader = () => (
 
 const CodeCanvas: React.FC<CodeCanvasProps> = ({
   onCollapseCanvas,
+  isCanvasFullscreen = false,
+  onToggleCanvasFullscreen,
+  onCreateScratchTab,
   activeTab, activeCanvasTab, isDarkTheme,
   onUpdateContent, onSaveTab, onSaveAsTab,
   onAcceptDiff, onRejectDiff,
   agentHistory, agentId, pendingApproval, selectedApproval = null, isApprovalsSectionOpen = false, onApproveTool, onDenyTool,
 }) => {
-  const monacoTheme = isDarkTheme ? 'vs-dark' : 'vs';
+  const monacoTheme = isDarkTheme ? ZERO_MONACO_DARK : ZERO_MONACO_LIGHT;
+  const monacoRef = useRef<any>(null);
+
+  const registerMonaco = useCallback((monaco: any) => {
+    monacoRef.current = monaco;
+    defineZeroMonacoThemes(monaco);
+  }, []);
+
+  // The accent lives in --nebula-*, which the picker swaps by putting a
+  // theme-* class on <body>. Monaco only takes literal colors, so the themes
+  // have to be rebuilt and reapplied when that class changes.
+  useEffect(() => {
+    if (typeof MutationObserver === 'undefined') return;
+    const observer = new MutationObserver(() => {
+      const monaco = monacoRef.current;
+      if (!monaco) return;
+      defineZeroMonacoThemes(monaco);
+      monaco.editor.setTheme(monacoTheme);
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, [monacoTheme]);
 
   const headerTitle = activeCanvasTab === 'commands'
     ? 'Command Stream'
@@ -324,18 +351,27 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
   const canShowFileActions = !!activeTab && !isSessionNoteTab(activeTab) && !activeTab.isDiff;
 
   const monacoOptions = {
-    minimap: { enabled: true },
+    // renderCharacters off keeps the minimap a shape rather than a smear of
+    // unreadable glyphs, which is what it is at this column width.
+    minimap: { enabled: true, renderCharacters: false, maxColumn: 80 },
     fontSize: 13,
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
     fontLigatures: true,
-    padding: { top: 12 },
+    padding: { top: 12, bottom: 12 },
     scrollBeyondLastLine: false,
     automaticLayout: true,
     lineNumbersMinChars: 3,
+    glyphMargin: false,
     renderWhitespace: 'selection' as const,
+    renderLineHighlight: 'line' as const,
     smoothScrolling: true,
     cursorBlinking: 'smooth' as const,
+    cursorSmoothCaretAnimation: 'on' as const,
     bracketPairColorization: { enabled: true },
+    guides: { indentation: true, bracketPairs: false },
+    overviewRulerBorder: false,
+    overviewRulerLanes: 2,
+    scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
     wordWrap: 'off' as const,
   };
 
@@ -451,10 +487,26 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
 
   const renderEmptyState = () => (
     <CanvasViewport className={isDarkTheme ? "bg-[#1e1e1e]" : "bg-white"}>
-      <div className={`flex h-full min-h-0 min-w-0 items-center justify-center ${isDarkTheme ? "text-slate-500" : "text-slate-500"}`}>
-        <div className="flex flex-col items-center gap-2 px-6 text-center">
+      <div className="flex h-full min-h-0 min-w-0 items-center justify-center text-slate-500">
+        <div className="flex flex-col items-center gap-3 px-6 text-center">
           <div className={`text-sm font-medium ${isDarkTheme ? "text-slate-300" : "text-slate-700"}`}>Canvas ready</div>
-          <div className="text-[12px] text-slate-500">Use the rail to open a Note, Scratch Pad, or Stream.</div>
+          <div className="text-[12px] text-slate-500">Open a Note or the Project Tree from the rail, or start a scratch pad.</div>
+          {/* The empty state promised a scratch pad and onCreateScratchTab was
+              already wired all the way down to this component, but nothing ever
+              called it -- which left the editor unreachable to anyone without a
+              registered project. */}
+          {onCreateScratchTab && (
+            <button
+              type="button"
+              onClick={onCreateScratchTab}
+              className="mt-1 inline-flex items-center gap-1.5 rounded bg-nebula-800 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-white transition-colors hover:bg-nebula-900 dark:bg-nebula-600 dark:hover:bg-nebula-500"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 5v14M5 12h14" />
+              </svg>
+              New scratch pad
+            </button>
+          )}
         </div>
       </div>
     </CanvasViewport>
@@ -498,7 +550,7 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
                 <div className="px-3 py-1 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800/30 text-[9px] font-black text-red-600 dark:text-red-400 uppercase tracking-wider shrink-0">Original</div>
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Suspense fallback={<MonacoLoader />}>
-                    <MonacoEditor height="100%" theme={monacoTheme} defaultLanguage={activeTab.language} value={activeTab.originalContent} options={{ ...monacoOptions, readOnly: true }} />
+                    <MonacoEditor height="100%" theme={monacoTheme} beforeMount={registerMonaco} defaultLanguage={activeTab.language} value={activeTab.originalContent} options={{ ...monacoOptions, readOnly: true }} />
                   </Suspense>
                 </div>
               </div>
@@ -506,7 +558,7 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
                 <div className="px-3 py-1 bg-green-50 dark:bg-green-900/20 border-b border-green-200 dark:border-green-800/30 text-[9px] font-black text-green-600 dark:text-green-400 uppercase tracking-wider shrink-0">Proposed</div>
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Suspense fallback={<MonacoLoader />}>
-                    <MonacoEditor height="100%" theme={monacoTheme} defaultLanguage={activeTab.language} value={activeTab.content} options={{ ...monacoOptions, readOnly: true }} />
+                    <MonacoEditor height="100%" theme={monacoTheme} beforeMount={registerMonaco} defaultLanguage={activeTab.language} value={activeTab.content} options={{ ...monacoOptions, readOnly: true }} />
                   </Suspense>
                 </div>
               </div>
@@ -533,6 +585,7 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
               <MonacoEditor
                 height="100%"
                 theme={monacoTheme}
+                beforeMount={registerMonaco}
                 defaultLanguage={activeTab.language}
                 value={activeTab.content}
                 onChange={val => onUpdateContent(activeTab.id, val ?? '')}
@@ -563,10 +616,27 @@ const CodeCanvas: React.FC<CodeCanvasProps> = ({
                 <div className="min-w-0 truncate text-[12px] font-medium text-slate-700 dark:text-slate-200">{headerTitle}</div>
               </div>
               <div className="ml-auto flex items-center gap-2 min-w-0 shrink-0">
+                {onToggleCanvasFullscreen && (
+                  <button
+                    onClick={onToggleCanvasFullscreen}
+                    className={`h-7 w-7 shrink-0 rounded-md transition-colors ${isCanvasFullscreen ? 'bg-nebula-500/15 text-nebula-800 dark:text-nebula-100' : 'text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/70 dark:hover:text-slate-100'}`}
+                    title={isCanvasFullscreen ? 'Exit fullscreen canvas' : 'Fullscreen canvas'}
+                    aria-label={isCanvasFullscreen ? 'Exit fullscreen canvas' : 'Fullscreen canvas'}
+                    aria-pressed={isCanvasFullscreen}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      {isCanvasFullscreen ? (
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20H4v-5m0 5l6.5-6.5M15 4h5v5m0-5l-6.5 6.5" />
+                      ) : (
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4H4v5m0-5l6.5 6.5M15 20h5v-5m0 5l-6.5-6.5" />
+                      )}
+                    </svg>
+                  </button>
+                )}
                 {canShowFileActions && activeTab && (
                   <>
                     {activeTab.content !== activeTab.savedContent && (
-                      <button onClick={() => onSaveTab(activeTab.id, activeTab.content, activeTab.path)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-nebula-600/80 hover:bg-nebula-500 text-white text-[9px] font-black uppercase tracking-wider transition-colors" title="Save file (Ctrl+S)">
+                      <button onClick={() => onSaveTab(activeTab.id, activeTab.content, activeTab.path)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-nebula-800 hover:bg-nebula-900 dark:bg-nebula-600 dark:hover:bg-nebula-500 text-white text-[9px] font-black uppercase tracking-wider transition-colors" title="Save file (Ctrl+S)">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
                         Save
                       </button>

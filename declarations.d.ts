@@ -10,6 +10,7 @@ declare module '@monaco-editor/react' {
     theme?: string;
     options?: any;
     onChange?: (value: string | undefined, event: any) => void;
+    beforeMount?: (monaco: any) => void;
     onMount?: (editor: any, monaco: any) => void;
     loading?: React.ReactNode;
     className?: string;

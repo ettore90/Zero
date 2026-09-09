@@ -19,7 +19,7 @@ export interface ChatCanvasShellProps {
   };
   canvas: any;
   isDarkTheme: boolean;
-  sessionNotes?: Array<{ id: string; noteId?: string | null; sessionId?: string | null; title?: string | null; contentHtml?: string | null }>;
+  sessionNotes?: Array<{ id: string; noteId?: string | null; sessionId?: string | null; title?: string | null; contentHtml?: string | null; updatedAt?: string | number | null }>;
   approvals?: Array<{ id: string; title?: string | null }>;
   activeNoteId?: string | null;
   notesEnabled?: boolean;
@@ -111,7 +111,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       const canonicalNoteId = String(note?.noteId ?? note?.id ?? '').trim();
       return canonicalNoteId ? { ...note, id: canonicalNoteId, noteId: canonicalNoteId } : null;
     })
-    .filter(Boolean) as Array<{ id: string; noteId?: string | null; sessionId?: string | null; title?: string | null; contentHtml?: string | null }>;
+    .filter(Boolean) as Array<{ id: string; noteId?: string | null; sessionId?: string | null; title?: string | null; contentHtml?: string | null; updatedAt?: string | number | null }>;
 
   const normalizedApprovals = Array.isArray(approvals) ? approvals : [];
   const normalizedSelectedApproval = selectedApproval && normalizedApprovals.some((approval) => approval?.id === selectedApproval.id)
@@ -133,6 +133,33 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       void onOpenSessionNoteFromRail(canonicalNoteId, noteSessionId ?? null);
     }
   };
+
+  // Fullscreen hands the whole split to the canvas and hides the chat column.
+  // Sticky across reloads: it is a working mode, not a momentary action.
+  const FULLSCREEN_KEY = 'zero_canvas_fullscreen';
+  const [isCanvasFullscreen, setIsCanvasFullscreen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(FULLSCREEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleCanvasFullscreen = () => {
+    setIsCanvasFullscreen((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(FULLSCREEN_KEY, next ? '1' : '0');
+      } catch {
+        /* private mode / blocked storage: the toggle still works for this session */
+      }
+      if (next && !canvas.isCanvasVisible) canvas.toggleCanvas();
+      return next;
+    });
+  };
+  // Only meaningful while the canvas is showing; collapsing it must not leave
+  // the shell with neither column.
+  const isFullscreenActive = isCanvasFullscreen && isCanvasVisible;
 
   const [desktopChatWidthPct, setDesktopChatWidthPct] = useState<number | null>(null);
   const dragStateRef = useRef<{ dragging: boolean } | null>(null);
@@ -206,6 +233,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
     isProjectTreeSectionOpen: isCanvasProjectTreeSectionOpen,
     isSessionNotesSectionOpen: isCanvasSessionNotesSectionOpen,
     isApprovalsSectionOpen: isCanvasApprovalsSectionOpen,
+    isCanvasFullscreen: isFullscreenActive,
   };
 
   const railActions = {
@@ -248,6 +276,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       setIsCanvasApprovalsSectionOpen(false);
       canvas.setActiveCanvasTab('commands');
     },
+    onToggleCanvasFullscreen: toggleCanvasFullscreen,
   };
 
   const mobileRail = <CanvasRail railState={railState} railActions={railActions} compact />;
@@ -284,6 +313,8 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       onOpenSessionNote={handleOpenSessionNoteFromRail}
       onOpenApproval={handleOpenApprovalFromRail}
       onCollapseCanvas={canvas.toggleCanvas}
+      isCanvasFullscreen={isFullscreenActive}
+      onToggleCanvasFullscreen={toggleCanvasFullscreen}
       onProjectTreeFileOpened={() => {
         setIsCanvasProjectTreeSectionOpen(false);
         setIsCanvasSessionNotesSectionOpen(false);
@@ -297,6 +328,8 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       onEditAgent={onEditAgent}
       onCreateSessionNote={onCreateSessionNote}
       onCollapseCanvas={canvas.toggleCanvas}
+      isCanvasFullscreen={isFullscreenActive}
+      onToggleCanvasFullscreen={toggleCanvasFullscreen}
       tabs={canvas.tabs}
       activeTabId={canvas.activeTabId}
       activeTab={canvas.activeTab}
@@ -327,14 +360,15 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       <div className="hidden lg:flex h-full w-full min-w-0">
         <div ref={desktopSplitRef} className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
           <div
-            style={{ width: !isChatVisible ? '0' : isCanvasVisible ? `calc(${desktopChatWidthPct ?? 60}% - 0.25rem)` : '100%' }}
-            className={`flex flex-col overflow-hidden transition-[width,height] duration-300 ease-in-out ${isChatVisible ? 'h-full min-w-0' : 'h-12 w-0 min-w-0'}`}
+            style={{ width: isFullscreenActive || !isChatVisible ? '0' : isCanvasVisible ? `calc(${desktopChatWidthPct ?? 60}% - 0.25rem)` : '100%' }}
+            className={`flex flex-col overflow-hidden transition-[width,height] duration-300 ease-in-out ${isFullscreenActive ? 'h-full w-0 min-w-0' : isChatVisible ? 'h-full min-w-0' : 'h-12 w-0 min-w-0'}`}
+            aria-hidden={isFullscreenActive || undefined}
           >
             <div className={isChatVisible ? (isCanvasVisible ? 'h-full min-h-0' : 'flex-1 min-h-0') : 'h-12 overflow-hidden'}>
               {chatContentWithMobileRail}
             </div>
           </div>
-          {isCanvasVisible && (
+          {isCanvasVisible && !isFullscreenActive && (
             <div
               role="separator"
               aria-orientation="vertical"
@@ -345,7 +379,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
             </div>
           )}
           <div
-            style={{ width: isCanvasVisible ? `calc(${100 - (desktopChatWidthPct ?? 60)}% - 0.25rem)` : '0%' }}
+            style={{ width: isFullscreenActive ? '100%' : isCanvasVisible ? `calc(${100 - (desktopChatWidthPct ?? 60)}% - 0.25rem)` : '0%' }}
             className={`h-full min-h-0 min-w-0 overflow-hidden bg-[#1e1e1e] transition-[width] duration-300 ease-in-out ${isCanvasVisible ? 'block' : 'hidden'}`}
           >
             <div className="h-full min-h-0 min-w-0 w-full overflow-hidden">{workspaceContent}</div>
@@ -370,8 +404,9 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
 
       <div className="hidden md:flex lg:hidden h-full w-full min-w-0">
         <div
-          style={{ width: !isChatVisible ? '0' : isCanvasVisible ? '52%' : '100%' }}
-          className={`flex flex-col overflow-hidden transition-[width,height] duration-300 ease-in-out ${isChatVisible ? 'h-full min-w-0' : 'h-12 w-0 min-w-0'}`}
+          style={{ width: isFullscreenActive || !isChatVisible ? '0' : isCanvasVisible ? '52%' : '100%' }}
+          className={`flex flex-col overflow-hidden transition-[width,height] duration-300 ease-in-out ${isFullscreenActive ? 'h-full w-0 min-w-0' : isChatVisible ? 'h-full min-w-0' : 'h-12 w-0 min-w-0'}`}
+          aria-hidden={isFullscreenActive || undefined}
         >
           <div className={isChatVisible ? 'h-full min-h-0' : 'h-12 overflow-hidden'}>
             {chatContent}
@@ -379,7 +414,7 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
         </div>
         {isCanvasVisible ? (
           <>
-            <div className="w-px shrink-0 bg-slate-200 dark:bg-slate-800" />
+            {!isFullscreenActive && <div className="w-px shrink-0 bg-slate-200 dark:bg-slate-800" />}
             <div className="relative h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#1e1e1e]">
               <div className="h-full min-h-0 min-w-0 w-full overflow-hidden">{workspaceContent}</div>
               <div className="absolute inset-y-0 right-0 h-full w-14 shrink-0">

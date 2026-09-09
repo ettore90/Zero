@@ -13,6 +13,7 @@ export interface CanvasRailState {
   isApprovalsSectionOpen: boolean;
   hasSessionNoteTarget: boolean;
   pendingApproval: boolean;
+  isCanvasFullscreen: boolean;
 }
 
 export interface CanvasRailActions {
@@ -21,6 +22,7 @@ export interface CanvasRailActions {
   onToggleApprovalsSection: () => void;
   onEditAgent: () => void;
   onSwitchToCommands: () => void;
+  onToggleCanvasFullscreen: () => void;
 }
 
 export interface CanvasRailProps {
@@ -51,6 +53,7 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
     isApprovalsSectionOpen,
     hasSessionNoteTarget,
     pendingApproval,
+    isCanvasFullscreen,
   } = railState;
   const {
     onToggleSessionNotesSection,
@@ -58,6 +61,7 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
     onToggleApprovalsSection,
     onEditAgent,
     onSwitchToCommands,
+    onToggleCanvasFullscreen,
   } = railActions;
 
   const hasActiveSessionNoteTab =
@@ -150,6 +154,16 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
   ];
 
   const lowerRailButtons: RailButtonConfig[] = [
+    {
+      key: 'fullscreen',
+      title: isCanvasFullscreen ? 'Exit fullscreen' : 'Fullscreen canvas',
+      ariaLabel: isCanvasFullscreen ? 'Exit fullscreen canvas' : 'Fullscreen canvas',
+      active: isCanvasFullscreen,
+      onClick: onToggleCanvasFullscreen,
+      icon: isCanvasFullscreen
+        ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20H4v-5m0 5l6.5-6.5M15 4h5v5m0-5l-6.5 6.5" />
+        : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4H4v5m0-5l6.5 6.5M15 20h5v-5m0 5l-6.5-6.5" />,
+    },
     {
       key: 'edit-agent',
       title: 'Edit Agent',
