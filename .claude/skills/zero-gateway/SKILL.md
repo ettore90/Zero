@@ -156,6 +156,9 @@ omit it entirely. Treat token counts as real, cost as advisory.
 **Jira** — `ALL /jira/rest/*` is a credential-injecting passthrough to the Jira Cloud REST API:
 write the real Jira path, send no token, Zero attaches the stored one. **For anything Jira, load
 the `jira-api` skill** — it carries the endpoints, the JQL and pagination traps, and the limits.
+The credential is stored **per user**, so `x-username: ettore` is not optional here the way it is
+on read-only routes — without it the passthrough 401s with "No Jira credential available" even
+though the secret is stored. Use `zero_jira` from `helpers.sh` and the header is handled for you.
 Zero also has `GET /jira/queue` (persists an issue snapshot to SQLite, returns counts) and
 `POST /jira/action` (six write ops); neither carries `checkLocalAccess`, the passthrough does.
 

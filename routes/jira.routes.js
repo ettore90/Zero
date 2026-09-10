@@ -21,6 +21,7 @@ import { getDb } from '../db.js';
 import { checkLocalAccess } from '../middlewares/localAccess.js';
 import {
   getJiraToken,
+  describeMissingCredential,
   buildAuthorizationHeader,
   normalizeJiraPath,
   forwardToJira,
@@ -1356,7 +1357,7 @@ router.get('/jira/queue', async (req, res) => {
 
   if (!token) {
     endQueueRun(runId);
-    return res.status(401).json({ error: 'Missing Jira token. Send x-jira-token (preferred: {{JIRA_KEY}}) or set JIRA_TOKEN env.' });
+    return res.status(401).json({ error: describeMissingCredential(req) });
   }
 
   const { jql, fields, snapshotKey: snapshotKeyParam } = req.query;
@@ -1656,7 +1657,7 @@ router.get('/jira/queue', async (req, res) => {
 router.post('/jira/action', async (req, res) => {
   const token = getJiraToken(req);
   if (!token) {
-    return res.status(401).json({ error: 'Missing Jira token.' });
+    return res.status(401).json({ error: describeMissingCredential(req) });
   }
 
   const { action, issueKey, issueId, ...params } = req.body || {};
@@ -1868,9 +1869,7 @@ router.post('/jira/action', async (req, res) => {
 router.all('/jira/rest/*', checkLocalAccess, async (req, res) => {
   const token = getJiraToken(req);
   if (!token) {
-    return res.status(401).json({
-      error: 'No Jira credential available. Store JIRA_KEY in your Zero secrets, send x-jira-token, or set JIRA_TOKEN.',
-    });
+    return res.status(401).json({ error: describeMissingCredential(req) });
   }
 
   const { path, error } = normalizeJiraPath(`rest/${req.params[0] || ''}`);

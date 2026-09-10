@@ -128,6 +128,23 @@ zero_stop() {
 zero_alerts() { zero_get "/alerts?username=$ZERO_USER"; }
 zero_breaker() { zero_get /admin/circuit-breaker/status; }
 
+# ---- jira passthrough ------------------------------------------------------
+# The Jira credential is stored per user, so the x-username header is what
+# selects it -- omit it and the route 401s even though the secret is stored.
+# Write the REAL Jira REST path after the mount point.
+#
+#   zero_jira api/3/myself
+#   zero_jira 'api/3/search/jql?jql=project%3DSAMS&maxResults=5&fields=key,summary'
+#   zero_jira api/3/issue -X POST -H 'Content-Type: application/json' -d "$body"
+#
+# Traps (see the jira-api skill): /api/3/search is gone -- use search/jql; JQL
+# must be bounded; search/jql pages by nextPageToken, with no total. Bodies and
+# comments are ADF, not plain text.
+zero_jira() {
+  local path="$1"; shift
+  curl -sk -m 60 "$ZERO_BASE/jira/rest/$path" -H "x-username: $ZERO_USER" "$@"
+}
+
 # ---- inference (heavy — see SKILL.md before using) -------------------------
 # Runs the full agent loop with all server-side tools enabled. ~3.4k prompt
 # tokens of overhead per call. Not a plain "ask a model" endpoint.

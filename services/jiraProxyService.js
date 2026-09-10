@@ -67,6 +67,27 @@ export function getJiraToken(req) {
   return (process.env.JIRA_TOKEN || '').trim();
 }
 
+/**
+ * Explains why getJiraToken came back empty, naming the header that actually
+ * fixes it. The credential is stored per user, so the usual cause is a request
+ * with no `x-username` at all -- and the old message never mentioned it, which
+ * sent callers off to re-store a secret that was already there.
+ */
+export function describeMissingCredential(req) {
+  const username = req.user?.username || req.headers['x-username'] || '';
+
+  if (!username) {
+    return 'No Jira credential available: the request carried no user, so there '
+      + "was no stored secret to look up. Send the header `x-username: <user>` "
+      + "(e.g. `-H 'x-username: ettore'`) -- that is what selects whose stored "
+      + 'credential is used. Alternatively send x-jira-token, or set JIRA_TOKEN.';
+  }
+
+  return `No Jira credential available for user "${username}": no JIRA_KEY or `
+    + 'JIRA_TOKEN is stored in that user\'s Zero secrets. Store one there, or '
+    + 'send x-jira-token, or set the JIRA_TOKEN environment variable.';
+}
+
 export function buildAuthorizationHeader(token) {
   if (!token) return '';
   if (token.toLowerCase().startsWith('basic ')) return token;
