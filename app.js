@@ -15,6 +15,7 @@ import usersRoutes from './routes/users.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
 import sessionsRoutes from './routes/sessions.routes.js';
 import configRoutes from './routes/config.routes.js';
+import promptPackagesRoutes from './routes/prompt-packages.routes.js';
 import stateRoutes from './routes/state.routes.js';
 import alertsRoutes from './routes/alerts.routes.js';
 import adminRoutes from './routes/admin.routes.js';
@@ -35,6 +36,34 @@ export function createApp() {
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
+
+  const stagingPaths = new Set(['/api/settings/prompt-packages/stage']);
+  const activatePathPrefixes = ['/api/settings/prompt-packages'];
+  if (env.BASE_PATH) {
+    stagingPaths.add(`${env.BASE_PATH}/api/settings/prompt-packages/stage`);
+    activatePathPrefixes.push(`${env.BASE_PATH}/api/settings/prompt-packages`);
+  }
+
+  app.use((err, req, res, next) => {
+    const isBodyParserSyntaxError = err instanceof SyntaxError && err.status === 400 && 'body' in err;
+    const isActivatePath = activatePathPrefixes.some((prefix) => {
+      const packageAndAction = req.path.startsWith(`${prefix}/`) ? req.path.slice(prefix.length + 1) : '';
+      return /^[^/]+\/activate$/.test(packageAndAction);
+    });
+    const isDeactivatePath = activatePathPrefixes.some((prefix) => {
+      const packageAndAction = req.path.startsWith(`${prefix}/`) ? req.path.slice(prefix.length + 1) : '';
+      return /^[^/]+\/deactivate$/.test(packageAndAction);
+    });
+    const isRollbackPath = activatePathPrefixes.some((prefix) => {
+      const packageAndAction = req.path.startsWith(`${prefix}/`) ? req.path.slice(prefix.length + 1) : '';
+      return /^[^/]+\/rollback$/.test(packageAndAction);
+    });
+    if (req.method === 'POST' && (stagingPaths.has(req.path) || isActivatePath || isDeactivatePath || isRollbackPath) && isBodyParserSyntaxError) {
+      return res.status(400).json({ error: 'request body must be an object' });
+    }
+    return next(err);
+  });
+
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
   app.use(attachUserContext);
 
@@ -54,6 +83,7 @@ export function createApp() {
     app.use(prefix, agentsRoutes);
     app.use(prefix, sessionsRoutes);
     app.use(prefix, configRoutes);
+    app.use(prefix, promptPackagesRoutes);
     app.use(prefix, stateRoutes);
     app.use(prefix, alertsRoutes);
     app.use(prefix, adminRoutes);

@@ -314,6 +314,104 @@ function getAgentPromptInheritanceState(agentDoc, { agentType = null } = {}) {
     inheritedByBlockId,
   };
 }
+export function resolveEffectivePromptForAgentDocumentNoBootstrap(agentDoc, { agentType = null } = {}) {
+  const db = getDb();
+  const agentDocumentId = agentDoc?.id ?? null;
+  const globalDoc = getPromptDocumentByKeyNoBootstrap(GLOBAL_PROMPT_DOCUMENT_KEY);
+  const globalRefs = globalDoc?.id ? listPromptDocumentBlockRefs(globalDoc.id) : [];
+  const globalAssignments = globalDoc?.id ? listPromptBlockTypeAssignments(globalDoc.id) : [];
+  const inheritedByBlockId = new Map();
+  for (const assignment of globalAssignments) {
+    if (!assignmentTargetsAgentType(assignment, agentType)) continue;
+    inheritedByBlockId.set(assignment.blockId, assignment);
+  }
+  const localRefs = agentDocumentId ? listPromptDocumentBlockRefs(agentDocumentId) : [];
+  const localAssignments = agentDocumentId ? listPromptBlockTypeAssignments(agentDocumentId) : [];
+  const localByBlockId = new Map(localRefs.map(ref => [ref.blockId, ref]));
+  const localAssignmentByBlockId = new Map(localAssignments.map(assignment => [assignment.blockId, assignment]));
+  const disabledInheritedBlockIds = new Set();
+  const localEffectiveRefs = [];
+  for (const ref of localRefs) {
+    const meta = ref?.metadata ?? {};
+    const disabled = meta.disableInherited ?? meta.disabledInherited ?? meta.inheritedDisabled ?? null;
+    const targetBlockId = meta.inheritedBlockId ?? meta.globalBlockId ?? ref.blockId;
+    if (disabled) disabledInheritedBlockIds.add(String(targetBlockId));
+    if (ref.included) localEffectiveRefs.push(ref);
+  }
+  const mergedRefsByBlockId = new Map();
+  for (const ref of globalRefs) {
+    const assignment = inheritedByBlockId.get(ref.blockId) || null;
+    if (!assignment) continue;
+    if (!assignmentTargetsAgentType(assignment, agentType)) continue;
+    if (disabledInheritedBlockIds.has(String(ref.blockId))) continue;
+    const block = db.prepare('SELECT * FROM prompt_blocks WHERE id = ? LIMIT 1').get(ref.blockId);
+    mergedRefsByBlockId.set(ref.blockId, { ...ref, origin: 'global', inherited: true, block: block ? toBlock(block) : null, metadata: { ...(ref.metadata ?? {}), inheritedFromGlobal: true } });
+  }
+  for (const ref of localEffectiveRefs) {
+    mergedRefsByBlockId.set(ref.blockId, { ...ref, origin: 'local', inherited: false });
+  }
+  const mergedRefs = [...mergedRefsByBlockId.values()].sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.blockId).localeCompare(String(b.blockId)));
+  const blocks = mergedRefs.map(ref => {
+    const blockRow = ref.block ?? db.prepare('SELECT * FROM prompt_blocks WHERE id = ? LIMIT 1').get(ref.blockId);
+    if (!blockRow) return null;
+    const block = toBlock(blockRow);
+    const resolvedVersionId = ref.followCurrent === true ? null : (ref.pinnedBlockVersionId ?? ref.blockVersionId ?? null);
+    const version = resolvedVersionId ? toBlockVersion(db.prepare('SELECT * FROM prompt_block_versions WHERE id = ? LIMIT 1').get(resolvedVersionId)) : getBlockCurrentVersion(block.id);
+    const effectiveContent = version?.content ?? block.content ?? '';
+    const localRef = localByBlockId.get(ref.blockId) || null;
+    const localAssignment = localAssignmentByBlockId.get(ref.blockId) || null;
+    const inheritedAssignment = inheritedByBlockId.get(ref.blockId) || null;
+    const effectiveOrigin = ref.origin || (localRef ? 'local' : 'global');
+    const effectiveInherited = effectiveOrigin !== 'local';
+    const effectiveRefId = ref.id ?? null;
+    const effectiveBlockVersionId = ref.followCurrent === true ? null : (ref.pinnedBlockVersionId ?? ref.blockVersionId ?? null);
+    const effectiveRefIdentity = {
+      refId: effectiveRefId,
+      blockId: ref.blockId,
+      blockVersionId: effectiveBlockVersionId,
+      origin: effectiveOrigin,
+      inherited: effectiveInherited,
+      inheritedFromGlobal: effectiveInherited ? true : false,
+      globalBlockId: effectiveInherited ? ref.blockId : null,
+      localBlockId: localRef ? localRef.blockId : null,
+      source: effectiveInherited ? 'effective-ref' : 'local-ref',
+    };
+    const canonicalRefIdentity = [
+      String(ref.blockId ?? ''),
+      String(effectiveBlockVersionId ?? 'current'),
+      effectiveInherited ? 'global' : 'local',
+    ].join('|');
+    return {
+      ...block,
+      effectiveContent,
+      effectiveRefIdentity,
+      canonicalRefIdentity,
+      effectiveRefBlockId: ref.blockId,
+      effectiveRefOrigin: effectiveOrigin,
+      effectiveRefInherited: effectiveInherited,
+      effectiveRefGlobalBlockId: effectiveInherited ? ref.blockId : null,
+      effectiveRefLocalBlockId: localRef ? localRef.blockId : null,
+      effectiveRefAssignment: localAssignment || inheritedAssignment || null,
+    };
+  }).filter(Boolean);
+  const content = blocks.map(block => block.effectiveContent).filter(Boolean).join('\n\n');
+  return {
+    document: agentDoc || null,
+    agentType: agentType ?? null,
+    globalDocument: globalDoc,
+    blocks,
+    refs: mergedRefs,
+    content,
+    localRefs,
+    localAssignments,
+    globalRefs,
+    globalAssignments,
+    disabledInheritedBlockIds: [...disabledInheritedBlockIds],
+    localByBlockId,
+    localAssignmentByBlockId,
+    inheritedByBlockId,
+  };
+}
 export function resolveEffectivePromptForAgentDocument(agentDoc, options = {}) {
   return getAgentPromptInheritanceState(agentDoc, options);
 }

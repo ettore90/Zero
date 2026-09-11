@@ -17,6 +17,10 @@ import { isToolAllowedForSession } from './toolAccessPolicy.js';
 import { normalizePlanForStorage, persistPlanRecord } from './planState.js';
 import { broadcastToUser } from './streamBroker.js';
 import { createSubagentAudit, appendSubagentAuditLog, finalizeSubagentAudit, serializeJson } from './subagentAuditService.js';
+import { getPromptDocumentByKeyNoBootstrap, resolveEffectivePromptForAgentDocumentNoBootstrap } from './promptStore.js';
+import { selectPromptBlocks } from './promptBlockSelector.js';
+import { recordPromptCompositionAudit } from './promptCompositionAuditStore.js';
+import { createHash, randomUUID } from 'node:crypto';
 import http2 from 'http2';
 import { BASH_BIN } from '../utils/shell.js';
 
@@ -46,6 +50,95 @@ function isEmbeddingModelId(value) {
 
 function selectDefaultChatModel(modelConfigs = []) {
   return modelConfigs.find((m) => !isEmbeddingModelId(m?.modelId || m?.id || m?.name)) || modelConfigs[0] || null;
+}
+
+function resolvePromptCompositionRuntime(agent) {
+  try {
+    const data = agent?.data;
+    // data.promptCompositionRuntime wins when explicitly present; the flattened
+    // field is only a compatibility fallback for rowToAgent-spread data.
+    const config = data && typeof data === 'object' && Object.prototype.hasOwnProperty.call(data, 'promptCompositionRuntime')
+      ? data.promptCompositionRuntime
+      : agent?.promptCompositionRuntime;
+    if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
+
+    const keys = Object.keys(config);
+    const ownNames = Object.getOwnPropertyNames(config);
+    if (Object.getOwnPropertySymbols(config).length > 0 || ownNames.length !== keys.length) return null;
+    if (keys.length < 2 || keys.length > 3 || !keys.includes('enabled') || !keys.includes('documentKey')) return null;
+    if (keys.some((key) => key !== 'enabled' && key !== 'documentKey' && key !== 'maxChars')) return null;
+
+    const descriptors = Object.getOwnPropertyDescriptors(config);
+    if (!descriptors.enabled?.enumerable || !descriptors.documentKey?.enumerable ||
+      (keys.includes('maxChars') && !descriptors.maxChars?.enumerable)) return null;
+    const enabled = descriptors.enabled.value;
+    const documentKey = descriptors.documentKey.value;
+    const maxChars = keys.includes('maxChars') ? descriptors.maxChars.value : undefined;
+    if (enabled !== true || typeof documentKey !== 'string' || !documentKey) return null;
+    if (maxChars !== undefined && (!Number.isInteger(maxChars) || maxChars < 0)) return null;
+
+    const document = getPromptDocumentByKeyNoBootstrap(documentKey);
+    if (!document) return null;
+    const resolved = resolveEffectivePromptForAgentDocumentNoBootstrap(document, { agentType: agent?.role });
+    const refsByBlockId = new Map((Array.isArray(resolved?.refs) ? resolved.refs : []).map((ref) => [ref?.blockId, ref]));
+    const candidates = (Array.isArray(resolved?.blocks) ? resolved.blocks : []).flatMap((block) => {
+      if (typeof block?.effectiveContent !== 'string' || !block.effectiveContent) return [];
+      const ref = refsByBlockId.get(block.id) || {};
+      return [{
+        blockId: block.id,
+        blockVersionId: block.effectiveRefIdentity?.blockVersionId ?? ref.pinnedBlockVersionId ?? ref.blockVersionId ?? null,
+        content: block.effectiveContent,
+        blockType: block.blockType ?? null,
+        position: ref.position ?? 0,
+        included: ref.included === true,
+      }];
+    });
+    const context = {};
+    if (typeof agent?.role === 'string' && agent.role) context.agentType = agent.role;
+    const selection = selectPromptBlocks({
+      candidates,
+      context,
+      ...(maxChars === undefined ? {} : { budget: { maxChars } }),
+    });
+    const content = selection.selected.map((block) => block.content).filter(Boolean).join('\n\n');
+    if (!content || selection.selected.length === 0) return null;
+
+    const selectedItems = selection.selected.map((block) => ({
+      blockId: block.blockId,
+      blockVersionId: block.blockVersionId ?? null,
+      blockType: block.blockType ?? null,
+      position: block.position ?? null,
+      priority: block.priority ?? null,
+      forceInclude: block.forceInclude === true,
+      forcedPosition: block.forcedPosition ?? null,
+      estimatedChars: block.estimatedChars ?? null,
+    }));
+    const excludedItems = selection.excluded.map((block) => ({
+      blockId: block.blockId,
+      blockVersionId: block.blockVersionId ?? null,
+      code: block.code,
+      estimatedChars: block.estimatedChars ?? null,
+    }));
+    return {
+      content,
+      audit: {
+        documentId: document.id,
+        documentVersionId: document.currentVersionId ?? null,
+        selectedItems,
+        excludedItems,
+        candidateCount: selection.summary.candidateCount,
+        selectedCount: selection.summary.selectedCount,
+        excludedCount: selection.summary.excludedCount,
+        budget: {
+          selectedChars: selection.summary.selectedChars,
+          ...(maxChars === undefined ? {} : { maxChars }),
+        },
+        compositionHash: createHash('sha256').update(content).digest('hex'),
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 function getCwd(agentId) {
@@ -1424,6 +1517,7 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
   const effectiveSessionId = !isEphemeral
     ? (sessionId || agent?.activeSessionId || `session-${agentId}-default`)
     : null;
+  const promptCompositionExecutionId = randomUUID();
   const tools = (isEphemeral && !sandboxMode) ? [] : (externalTools || buildAgentTools(username, agentId));
   const sessionForTools = effectiveSessionId ? sessionStore.getSession(String(effectiveSessionId)) || null : null;
   const providerTools = tools.filter((tool) => {
@@ -1705,11 +1799,45 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
     return lines.join('\n');
   };
 
-  if (!history.some((m) => m.role === 'system') && agent?.systemPrompt) {
-    const systemPrompt = agent.isMaster
-      ? `${agent.systemPrompt}\n\n${buildMasterIdentityPrompt()}`
-      : agent.systemPrompt;
-    history.unshift({ role: 'system', content: systemPrompt });
+  if (!history.some((m) => m.role === 'system')) {
+    const composition = resolvePromptCompositionRuntime(agent);
+    const promptBase = composition?.content || agent?.systemPrompt;
+    if (promptBase) {
+      if (composition) {
+        const agentType = typeof agent?.role === 'string' ? agent.role.trim() : '';
+        const auditSessionId = effectiveSessionId == null ? null : String(effectiveSessionId);
+        const contextIds = {
+          ...(agentType ? { agentType } : {}),
+          ...(auditSessionId ? { sessionId: auditSessionId } : {}),
+          executionId: promptCompositionExecutionId,
+          requestId: promptCompositionExecutionId,
+        };
+        try {
+          recordPromptCompositionAudit({
+            auditKind: 'runtime_prompt_composition',
+            documentId: composition.audit.documentId,
+            documentVersionId: composition.audit.documentVersionId,
+            agentId: String(agentId),
+            sessionId: auditSessionId,
+            executionId: promptCompositionExecutionId,
+            requestId: promptCompositionExecutionId,
+            idempotencyKey: `runtime-prompt-composition:${promptCompositionExecutionId}`,
+            compositionHash: composition.audit.compositionHash,
+            selectedItems: composition.audit.selectedItems,
+            excludedItems: composition.audit.excludedItems,
+            contextIds,
+            budget: composition.audit.budget,
+            candidateCount: composition.audit.candidateCount,
+            selectedCount: composition.audit.selectedCount,
+            excludedCount: composition.audit.excludedCount,
+          });
+        } catch {}
+      }
+      const systemPrompt = agent?.isMaster
+        ? `${promptBase}\n\n${buildMasterIdentityPrompt()}`
+        : promptBase;
+      history.unshift({ role: 'system', content: systemPrompt });
+    }
   }
 
   const normalizePlanStatus = (status) => {

@@ -432,15 +432,264 @@ function _createSchema(db) {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS prompt_packages (
+      id TEXT PRIMARY KEY,
+      package_key TEXT NOT NULL UNIQUE,
+      source TEXT NOT NULL,
+      repository TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'staged' CHECK (status IN ('staged', 'active', 'disabled', 'superseded', 'failed')),
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_prompt_packages_source_repository ON prompt_packages(source, repository);
+    CREATE INDEX IF NOT EXISTS idx_prompt_packages_status ON prompt_packages(status);
+    CREATE INDEX IF NOT EXISTS idx_prompt_packages_updated_at ON prompt_packages(updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS prompt_package_versions (
+      id TEXT PRIMARY KEY,
+      package_id TEXT NOT NULL,
+      version TEXT NOT NULL,
+      source_commit TEXT NOT NULL,
+      source_ref TEXT,
+      manifest TEXT NOT NULL DEFAULT '{}',
+      validation TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'staged' CHECK (status IN ('staged', 'active', 'disabled', 'superseded', 'failed')),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (package_id) REFERENCES prompt_packages(id) ON DELETE CASCADE,
+      UNIQUE (package_id, id),
+      UNIQUE (package_id, source_commit)
+    );
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_versions_package_id ON prompt_package_versions(package_id);
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_versions_status ON prompt_package_versions(status);
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_versions_created_at ON prompt_package_versions(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS prompt_package_artifacts (
+      id TEXT PRIMARY KEY,
+      package_version_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      artifact_key TEXT NOT NULL,
+      source_path TEXT,
+      content_hash TEXT,
+      prompt_block_id TEXT,
+      prompt_block_version_id TEXT,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (package_version_id) REFERENCES prompt_package_versions(id) ON DELETE CASCADE,
+      FOREIGN KEY (prompt_block_id) REFERENCES prompt_blocks(id) ON DELETE SET NULL,
+      FOREIGN KEY (prompt_block_version_id) REFERENCES prompt_block_versions(id) ON DELETE SET NULL,
+      UNIQUE (package_version_id, type, artifact_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_artifacts_package_version_id ON prompt_package_artifacts(package_version_id);
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_artifacts_prompt_block_id ON prompt_package_artifacts(prompt_block_id);
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_artifacts_content_hash ON prompt_package_artifacts(content_hash);
+
+    CREATE TABLE IF NOT EXISTS prompt_package_events (
+      id TEXT PRIMARY KEY,
+      package_id TEXT NOT NULL,
+      package_version_id TEXT,
+      event TEXT NOT NULL,
+      actor TEXT,
+      details TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (package_id) REFERENCES prompt_packages(id) ON DELETE CASCADE,
+      FOREIGN KEY (package_id, package_version_id) REFERENCES prompt_package_versions(package_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_events_package_id ON prompt_package_events(package_id, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_events_package_version_id ON prompt_package_events(package_version_id);
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_events_event ON prompt_package_events(event);
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_events_created_at ON prompt_package_events(created_at DESC);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prompt_composition_audits (
+      id TEXT PRIMARY KEY,
+      audit_kind TEXT NOT NULL,
+      document_id TEXT REFERENCES prompt_documents(id) ON DELETE SET NULL,
+      document_version_id TEXT REFERENCES prompt_versions(id) ON DELETE SET NULL,
+      package_version_id TEXT REFERENCES prompt_package_versions(id) ON DELETE SET NULL,
+      agent_id TEXT,
+      session_id TEXT,
+      execution_id TEXT,
+      request_id TEXT,
+      idempotency_key TEXT,
+      composition_hash TEXT NOT NULL,
+      input_hash TEXT,
+      selected_items TEXT NOT NULL DEFAULT '[]',
+      excluded_items TEXT NOT NULL DEFAULT '[]',
+      context_ids TEXT NOT NULL DEFAULT '{}',
+      budget TEXT NOT NULL DEFAULT '{}',
+      candidate_count INTEGER NOT NULL,
+      selected_count INTEGER NOT NULL,
+      excluded_count INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_prompt_composition_audits_created_at ON prompt_composition_audits(created_at);
+    CREATE INDEX IF NOT EXISTS idx_prompt_composition_audits_execution_id_created_at ON prompt_composition_audits(execution_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_prompt_composition_audits_request_id_created_at ON prompt_composition_audits(request_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_prompt_composition_audits_document_id_created_at ON prompt_composition_audits(document_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_prompt_composition_audits_session_id_created_at ON prompt_composition_audits(session_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_prompt_composition_audits_composition_hash ON prompt_composition_audits(composition_hash);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_prompt_composition_audits_idempotency_key ON prompt_composition_audits(idempotency_key) WHERE idempotency_key IS NOT NULL;
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS schema_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
   `);
 
+  _migratePromptPackageSchema(db);
   _migrateStrategyPlans(db);
 }
 
+function _migratePromptPackageSchema(db) {
+  const packageSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'prompt_packages'`).get()?.sql || '';
+  const versionSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'prompt_package_versions'`).get()?.sql || '';
+  const normalizedPackageSql = packageSql.toLowerCase().replace(/\s+/g, '');
+  const normalizedVersionSql = versionSql.toLowerCase().replace(/\s+/g, '');
+  const statusCheckPattern = /check\(statusin\(['"]staged['"],['"]active['"],['"]disabled['"],['"]superseded['"],['"]failed['"]\)\)/;
+  const hasPackageStatusCheck = statusCheckPattern.test(normalizedPackageSql);
+  const hasVersionStatusCheck = statusCheckPattern.test(normalizedVersionSql);
+  const hasVersionPackageIdUnique = db.prepare(`PRAGMA index_list(prompt_package_versions)`).all()
+    .some((index) => index.unique && db.prepare(`PRAGMA index_info(${_quoteIdentifier(index.name)})`).all()
+      .sort((a, b) => a.seqno - b.seqno)
+      .map((column) => column.name)
+      .join(',') === 'package_id,id');
+  const eventForeignKeys = db.prepare(`PRAGMA foreign_key_list(prompt_package_events)`).all();
+  const eventForeignKeysById = new Map();
+  for (const foreignKey of eventForeignKeys) {
+    const foreignKeys = eventForeignKeysById.get(foreignKey.id) || [];
+    foreignKeys.push(foreignKey);
+    eventForeignKeysById.set(foreignKey.id, foreignKeys);
+  }
+  const hasEventCompositeForeignKey = [...eventForeignKeysById.values()]
+    .some((foreignKeys) => foreignKeys.length === 2
+      && foreignKeys.every((foreignKey) => foreignKey.table === 'prompt_package_versions')
+      && foreignKeys.some((foreignKey) => foreignKey.seq === 0 && foreignKey.from === 'package_id' && foreignKey.to === 'package_id')
+      && foreignKeys.some((foreignKey) => foreignKey.seq === 1 && foreignKey.from === 'package_version_id' && foreignKey.to === 'id'));
+
+  if (hasPackageStatusCheck && hasVersionStatusCheck && hasVersionPackageIdUnique && hasEventCompositeForeignKey) return;
+
+  const invalidStatus = db.prepare(`
+    SELECT 'prompt_packages' AS table_name, id, status FROM prompt_packages
+    WHERE status NOT IN ('staged', 'active', 'disabled', 'superseded', 'failed')
+    UNION ALL
+    SELECT 'prompt_package_versions' AS table_name, id, status FROM prompt_package_versions
+    WHERE status NOT IN ('staged', 'active', 'disabled', 'superseded', 'failed')
+    LIMIT 1
+  `).get();
+  if (invalidStatus) throw new Error(`Cannot migrate prompt package schema: invalid status in ${invalidStatus.table_name} (${invalidStatus.id}).`);
+
+  const orphan = db.prepare(`
+    SELECT 'prompt_package_versions.package_id' AS relation, v.id FROM prompt_package_versions v
+      LEFT JOIN prompt_packages p ON p.id = v.package_id WHERE p.id IS NULL
+    UNION ALL
+    SELECT 'prompt_package_artifacts.package_version_id' AS relation, a.id FROM prompt_package_artifacts a
+      LEFT JOIN prompt_package_versions v ON v.id = a.package_version_id WHERE v.id IS NULL
+    UNION ALL
+    SELECT 'prompt_package_artifacts.prompt_block_id' AS relation, a.id FROM prompt_package_artifacts a
+      LEFT JOIN prompt_blocks b ON b.id = a.prompt_block_id WHERE a.prompt_block_id IS NOT NULL AND b.id IS NULL
+    UNION ALL
+    SELECT 'prompt_package_artifacts.prompt_block_version_id' AS relation, a.id FROM prompt_package_artifacts a
+      LEFT JOIN prompt_block_versions bv ON bv.id = a.prompt_block_version_id WHERE a.prompt_block_version_id IS NOT NULL AND bv.id IS NULL
+    UNION ALL
+    SELECT 'prompt_package_events.package_id' AS relation, e.id FROM prompt_package_events e
+      LEFT JOIN prompt_packages p ON p.id = e.package_id WHERE p.id IS NULL
+    UNION ALL
+    SELECT 'prompt_package_events.package_version_id' AS relation, e.id FROM prompt_package_events e
+      LEFT JOIN prompt_package_versions v ON v.id = e.package_version_id AND v.package_id = e.package_id
+      WHERE e.package_version_id IS NOT NULL AND v.id IS NULL
+    LIMIT 1
+  `).get();
+  if (orphan) throw new Error(`Cannot migrate prompt package schema: orphaned ${orphan.relation} (${orphan.id}).`);
+
+  const foreignKeysWereEnabled = db.pragma('foreign_keys', { simple: true }) === 1;
+  let transactionStarted = false;
+  try {
+    if (foreignKeysWereEnabled) db.pragma('foreign_keys = OFF');
+    db.exec('BEGIN IMMEDIATE');
+    transactionStarted = true;
+    db.exec(`
+      ALTER TABLE prompt_packages RENAME TO prompt_packages_legacy;
+      ALTER TABLE prompt_package_versions RENAME TO prompt_package_versions_legacy;
+      ALTER TABLE prompt_package_artifacts RENAME TO prompt_package_artifacts_legacy;
+      ALTER TABLE prompt_package_events RENAME TO prompt_package_events_legacy;
+
+      CREATE TABLE prompt_packages (
+        id TEXT PRIMARY KEY, package_key TEXT NOT NULL UNIQUE, source TEXT NOT NULL, repository TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'staged' CHECK (status IN ('staged', 'active', 'disabled', 'superseded', 'failed')),
+        metadata TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL DEFAULT (unixepoch()), updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+      CREATE TABLE prompt_package_versions (
+        id TEXT PRIMARY KEY, package_id TEXT NOT NULL, version TEXT NOT NULL, source_commit TEXT NOT NULL, source_ref TEXT,
+        manifest TEXT NOT NULL DEFAULT '{}', validation TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'staged' CHECK (status IN ('staged', 'active', 'disabled', 'superseded', 'failed')),
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()), updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        FOREIGN KEY (package_id) REFERENCES prompt_packages(id) ON DELETE CASCADE, UNIQUE (package_id, id), UNIQUE (package_id, source_commit)
+      );
+      CREATE TABLE prompt_package_artifacts (
+        id TEXT PRIMARY KEY, package_version_id TEXT NOT NULL, type TEXT NOT NULL, artifact_key TEXT NOT NULL, source_path TEXT,
+        content_hash TEXT, prompt_block_id TEXT, prompt_block_version_id TEXT, metadata TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()), updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        FOREIGN KEY (package_version_id) REFERENCES prompt_package_versions(id) ON DELETE CASCADE,
+        FOREIGN KEY (prompt_block_id) REFERENCES prompt_blocks(id) ON DELETE SET NULL,
+        FOREIGN KEY (prompt_block_version_id) REFERENCES prompt_block_versions(id) ON DELETE SET NULL,
+        UNIQUE (package_version_id, type, artifact_key)
+      );
+      CREATE TABLE prompt_package_events (
+        id TEXT PRIMARY KEY, package_id TEXT NOT NULL, package_version_id TEXT, event TEXT NOT NULL, actor TEXT,
+        details TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        FOREIGN KEY (package_id) REFERENCES prompt_packages(id) ON DELETE CASCADE,
+        FOREIGN KEY (package_id, package_version_id) REFERENCES prompt_package_versions(package_id, id)
+      );
+
+      INSERT INTO prompt_packages (id, package_key, source, repository, status, metadata, created_at, updated_at)
+        SELECT id, package_key, source, repository, status, metadata, created_at, updated_at FROM prompt_packages_legacy;
+      INSERT INTO prompt_package_versions (id, package_id, version, source_commit, source_ref, manifest, validation, status, created_at, updated_at)
+        SELECT id, package_id, version, source_commit, source_ref, manifest, validation, status, created_at, updated_at FROM prompt_package_versions_legacy;
+      INSERT INTO prompt_package_artifacts (id, package_version_id, type, artifact_key, source_path, content_hash, prompt_block_id, prompt_block_version_id, metadata, created_at, updated_at)
+        SELECT id, package_version_id, type, artifact_key, source_path, content_hash, prompt_block_id, prompt_block_version_id, metadata, created_at, updated_at FROM prompt_package_artifacts_legacy;
+      INSERT INTO prompt_package_events (id, package_id, package_version_id, event, actor, details, created_at)
+        SELECT id, package_id, package_version_id, event, actor, details, created_at FROM prompt_package_events_legacy;
+
+      DROP TABLE prompt_package_events_legacy;
+      DROP TABLE prompt_package_artifacts_legacy;
+      DROP TABLE prompt_package_versions_legacy;
+      DROP TABLE prompt_packages_legacy;
+
+      CREATE INDEX idx_prompt_packages_source_repository ON prompt_packages(source, repository);
+      CREATE INDEX idx_prompt_packages_status ON prompt_packages(status);
+      CREATE INDEX idx_prompt_packages_updated_at ON prompt_packages(updated_at DESC);
+      CREATE INDEX idx_prompt_package_versions_package_id ON prompt_package_versions(package_id);
+      CREATE INDEX idx_prompt_package_versions_status ON prompt_package_versions(status);
+      CREATE INDEX idx_prompt_package_versions_created_at ON prompt_package_versions(created_at DESC);
+      CREATE INDEX idx_prompt_package_artifacts_package_version_id ON prompt_package_artifacts(package_version_id);
+      CREATE INDEX idx_prompt_package_artifacts_prompt_block_id ON prompt_package_artifacts(prompt_block_id);
+      CREATE INDEX idx_prompt_package_artifacts_content_hash ON prompt_package_artifacts(content_hash);
+      CREATE INDEX idx_prompt_package_events_package_id ON prompt_package_events(package_id, created_at ASC);
+      CREATE INDEX idx_prompt_package_events_package_version_id ON prompt_package_events(package_version_id);
+      CREATE INDEX idx_prompt_package_events_event ON prompt_package_events(event);
+      CREATE INDEX idx_prompt_package_events_created_at ON prompt_package_events(created_at DESC);
+    `);
+    const foreignKeyErrors = db.prepare('PRAGMA foreign_key_check').all();
+    if (foreignKeyErrors.length) throw new Error(`Cannot migrate prompt package schema: foreign_key_check failed (${foreignKeyErrors[0].table}, row ${foreignKeyErrors[0].rowid}).`);
+    db.exec('COMMIT');
+    transactionStarted = false;
+  } catch (error) {
+    if (transactionStarted) db.exec('ROLLBACK');
+    throw error;
+  } finally {
+    if (foreignKeysWereEnabled) db.pragma('foreign_keys = ON');
+  }
+}
+
+function _quoteIdentifier(identifier) {
+  return `"${String(identifier).replace(/"/g, '""')}"`;
+}
 
 function _migrateStrategyPlans(db) {
   const cols = db.prepare(`PRAGMA table_info(strategy_plans)`).all();
