@@ -1863,6 +1863,9 @@ router.post('/jira/action', async (req, res) => {
 //        -d '{"body":{"type":"doc","version":1,"content":[]}}'
 //
 // Method, query string, body and upstream status are passed through unchanged.
+// Request headers are NOT: only the allowlist in jiraProxyService reaches Jira
+// (today just X-ExperimentalApi, which some JSM endpoints require), so a caller
+// can never supply its own Authorization.
 // The host is a constant and the path must be under rest/, so unlike
 // POST /api/proxy nothing in the request can retarget the call.
 // ---------------------------------------------------------------------------
@@ -1885,6 +1888,7 @@ router.all('/jira/rest/*', checkLocalAccess, async (req, res) => {
     query,
     body: hasBody ? req.body : undefined,
     token,
+    headers: req.headers,
   });
 
   res.status(result.status);

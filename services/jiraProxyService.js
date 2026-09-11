@@ -30,6 +30,28 @@ const PASSTHROUGH_RESPONSE_HEADERS = [
   'x-aretry-after',
 ];
 
+// Request headers a caller is allowed to set on the forwarded call. Strictly
+// allowlisted rather than passed through wholesale: parts of the Jira/JSM REST
+// surface are gated behind an opt-in header (creating a JSM request type, for
+// one, answers 412 without it), so without this the passthrough simply cannot
+// reach them. Authorization is deliberately absent and must stay absent -- it
+// is built from the stored credential below, and a caller-supplied one would
+// turn this into a relay for someone else's token.
+const PASSTHROUGH_REQUEST_HEADERS = ['x-experimentalapi'];
+
+/**
+ * Picks the forwardable headers out of a caller's raw header object. Filtering
+ * lives here rather than in the route so every caller of forwardToJira gets it.
+ */
+export function pickForwardableHeaders(incoming = {}) {
+  const picked = {};
+  for (const name of PASSTHROUGH_REQUEST_HEADERS) {
+    const value = incoming?.[name];
+    if (typeof value === 'string' && value.trim()) picked[name] = value.trim();
+  }
+  return picked;
+}
+
 /**
  * Canonical token resolution order:
  *   1. the current user's stored secret (apiKeys in user state), JIRA_KEY or JIRA_TOKEN
@@ -130,7 +152,7 @@ export function normalizeJiraPath(rawPath = '') {
  * Forwards one request to Jira. Never returns or logs the credential.
  * Resolves to { status, headers, body } where body is a Buffer.
  */
-export async function forwardToJira({ method = 'GET', path, query = '', body, token }) {
+export async function forwardToJira({ method = 'GET', path, query = '', body, token, headers = {} }) {
   const upper = String(method).toUpperCase();
   if (!ALLOWED_METHODS.has(upper)) {
     return { status: 405, headers: {}, body: Buffer.from(JSON.stringify({ error: `method ${upper} not allowed` })) };
@@ -145,6 +167,8 @@ export async function forwardToJira({ method = 'GET', path, query = '', body, to
     const response = await fetch(url, {
       method: upper,
       headers: {
+        // Allowlisted caller headers first, so the three below always win.
+        ...pickForwardableHeaders(headers),
         Authorization: buildAuthorizationHeader(token),
         Accept: 'application/json',
         ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
