@@ -156,51 +156,38 @@ const Layout: React.FC<LayoutProps> = ({
   // Fix Chrome mobile viewport height — lock to window.innerHeight to prevent layout jump
   const [vh, setVh] = useState<number | null>(null);
   useEffect(() => {
-    // On a tablet the on-screen keyboard fires `resize` *while typing*: its
-    // suggestion strip appears and disappears per keystroke, moving
-    // innerHeight by a few dozen pixels. Re-locking the root height on each of
-    // those re-renders this component and every panel it hosts -- agent,
-    // session and project panels, all mounted twice (mobile + desktop) and
-    // ~200 agent rows in total. Measured at 6x CPU throttling that is ~108ms
-    // of main-thread blocking per resize, which is the stutter felt on a
-    // tablet and nowhere else (a desktop fires no resize while typing).
-    // The browser's own relayout is not the problem: measured flat at 0.3ms
-    // even with 538k chars of chat in the DOM.
+    // Every resize is honoured. This used to skip changes under 120px while a
+    // text field was focused, to avoid re-rendering the shell on the resizes a
+    // tablet's on-screen keyboard fires while typing (~108ms of main-thread
+    // blocking each, measured at 6x throttling). That was the wrong trade
+    // twice over: the stutter it targeted turned out to be Chrome-on-iOS input
+    // handling, not these re-renders, and the skip broke the layout -- a
+    // tablet browser's toolbar collapses the viewport by a few dozen pixels,
+    // which is under that threshold, so the root stayed TALLER than the window
+    // and the message input dropped off the bottom of the screen. Reproduced
+    // at 1180x688 -> 1180x622 while typing: root stuck at 688px, input bottom
+    // at 634px against a 622px window. See chat-viewport-height.spec.ts.
     //
-    // So while a text field is focused, only large changes are honoured —
-    // opening/closing the keyboard and rotating the device move the viewport
-    // by hundreds of pixels, the suggestion strip by far less.
-    const KEYBOARD_NOISE_PX = 120;
+    // The re-render cost is addressed where it belongs instead: the panels
+    // Layout hosts are memoized, so a height change no longer re-renders them.
     let frame: number | null = null;
-    let locked = window.innerHeight;
 
     const apply = () => {
       frame = null;
-      locked = window.innerHeight;
-      setVh(locked);
+      setVh(window.innerHeight);
     };
+    // Coalesced into a frame so a burst of resizes costs one update.
     const schedule = () => {
       if (frame !== null) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(apply);
     };
-    const isTypingTarget = (el: Element | null) => {
-      if (!el) return false;
-      return el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || (el as HTMLElement).isContentEditable;
-    };
-    const onResize = () => {
-      if (isTypingTarget(document.activeElement) && Math.abs(window.innerHeight - locked) < KEYBOARD_NOISE_PX) return;
-      schedule();
-    };
 
     apply();
-    window.addEventListener('resize', onResize);
+    window.addEventListener('resize', schedule);
     window.addEventListener('orientationchange', schedule);
-    // Catch up once the field loses focus, so a height skipped above cannot
-    // leave the app sized for a keyboard that is no longer on screen.
-    window.addEventListener('focusout', schedule);
     return () => {
       if (frame !== null) window.cancelAnimationFrame(frame);
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('resize', schedule);
       window.removeEventListener('orientationchange', schedule);
       window.removeEventListener('focusout', schedule);
     };
