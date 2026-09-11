@@ -152,7 +152,7 @@ export function normalizeJiraPath(rawPath = '') {
  * Forwards one request to Jira. Never returns or logs the credential.
  * Resolves to { status, headers, body } where body is a Buffer.
  */
-export async function forwardToJira({ method = 'GET', path, query = '', body, token, headers = {} }) {
+export async function forwardToJira({ method = 'GET', path, query = '', body, token, requestHeaders = {} }) {
   const upper = String(method).toUpperCase();
   if (!ALLOWED_METHODS.has(upper)) {
     return { status: 405, headers: {}, body: Buffer.from(JSON.stringify({ error: `method ${upper} not allowed` })) };
@@ -168,7 +168,9 @@ export async function forwardToJira({ method = 'GET', path, query = '', body, to
       method: upper,
       headers: {
         // Allowlisted caller headers first, so the three below always win.
-        ...pickForwardableHeaders(headers),
+        // Named requestHeaders, not headers: the response-header object below
+        // is block-scoped in this same try, and the collision is a TDZ error.
+        ...pickForwardableHeaders(requestHeaders),
         Authorization: buildAuthorizationHeader(token),
         Accept: 'application/json',
         ...(hasBody ? { 'Content-Type': 'application/json' } : {}),

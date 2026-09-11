@@ -1888,7 +1888,7 @@ router.all('/jira/rest/*', checkLocalAccess, async (req, res) => {
     query,
     body: hasBody ? req.body : undefined,
     token,
-    headers: req.headers,
+    requestHeaders: req.headers,
   });
 
   res.status(result.status);
