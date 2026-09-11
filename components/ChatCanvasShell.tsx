@@ -145,18 +145,45 @@ const ChatCanvasShell: React.FC<ChatCanvasShellProps> = ({
       return false;
     }
   });
+  const fullscreenOpenedCanvasRef = useRef(false);
+  const persistFullscreen = (value: boolean) => {
+    try {
+      window.localStorage.setItem(FULLSCREEN_KEY, value ? '1' : '0');
+    } catch {
+      /* private mode / blocked storage: the toggle still works for this session */
+    }
+  };
   const toggleCanvasFullscreen = () => {
     setIsCanvasFullscreen((previous) => {
       const next = !previous;
-      try {
-        window.localStorage.setItem(FULLSCREEN_KEY, next ? '1' : '0');
-      } catch {
-        /* private mode / blocked storage: the toggle still works for this session */
+      persistFullscreen(next);
+      if (next && !canvas.isCanvasVisible) {
+        fullscreenOpenedCanvasRef.current = true;
+        canvas.toggleCanvas();
       }
-      if (next && !canvas.isCanvasVisible) canvas.toggleCanvas();
       return next;
     });
   };
+
+  // Fullscreen is sticky, and the canvas also opens on its own -- an arriving
+  // approval does it (ChatInterface.tsx), as does opening a note or a file from
+  // the rail. Those two together used to make the chat vanish with no visible
+  // cause: a fullscreen flag left in localStorage by an earlier session turned
+  // active the moment something opened the canvas, collapsing the chat column
+  // to width 0 right after the user sent a message. So fullscreen only survives
+  // while the canvas stays open: any re-open that fullscreen did not ask for
+  // starts from the normal split.
+  const wasCanvasVisibleRef = useRef(isCanvasVisible);
+  useEffect(() => {
+    const wasVisible = wasCanvasVisibleRef.current;
+    wasCanvasVisibleRef.current = isCanvasVisible;
+    const openedByFullscreen = fullscreenOpenedCanvasRef.current;
+    fullscreenOpenedCanvasRef.current = false;
+    if (!wasVisible && isCanvasVisible && isCanvasFullscreen && !openedByFullscreen) {
+      setIsCanvasFullscreen(false);
+      persistFullscreen(false);
+    }
+  }, [isCanvasVisible, isCanvasFullscreen]);
   // Only meaningful while the canvas is showing; collapsing it must not leave
   // the shell with neither column.
   const isFullscreenActive = isCanvasFullscreen && isCanvasVisible;

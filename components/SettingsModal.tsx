@@ -486,9 +486,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                               <option value="openrouter">OpenRouter</option>
                               <option value="anthropic">Anthropic</option>
                               <option value="stepfun">StepFun</option>
-                              <option value="sai">SAI (OpenAI)</option>
-                              <option value="sai-vertex">SAI (Vertex AI)</option>
-                              <option value="sai-nested">SAI (GPT-5 / Nested)</option>
+                              {/* `sai` is the one to use: it talks to SAI Library's
+                                  OpenAI-compatible endpoint with native tool calling for
+                                  every model family, gpt-5.6-luna/terra included. The two
+                                  below predate that and are kept only so existing configs
+                                  keep resolving — see CLAUDE.md. */}
+                              <option value="sai">SAI Library</option>
+                              <option value="sai-vertex">SAI Library (Vertex, legacy)</option>
+                              <option value="sai-nested">SAI Library (JSON tool calls, legacy)</option>
                               <option value="azure-openai">Azure OpenAI</option>
                               <option value="azure-foundry">Azure Foundry</option>
                             </select>

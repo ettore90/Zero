@@ -82,7 +82,9 @@ docker exec -w /uby/zero playwright-runner npx playwright test tests/e2e/ --repo
   `tests/e2e/chat-typing-viewport.spec.ts`).
 
 Auth is a `<select>` of existing users plus an `Open Session` button; a chat session is already open
-once the shell mounts. To reach the notes editor: click the canvas rail's `Notes` button on the right
+once the shell mounts. Select the user by **value** (`selectOption('ettore')`) — the option's label is
+`Display Name (username)`, so `selectOption({ label: 'ettore' })` matches nothing and then blocks until
+the test times out, 180s of nothing rather than a failed assertion. To reach the notes editor: click the canvas rail's `Notes` button on the right
 edge, then `New`, then the created row (New selects a note but does not open it).
 
 **When a selector fight starts, take a screenshot and look at it** (`page.screenshot`, then read the
