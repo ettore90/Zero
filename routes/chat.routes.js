@@ -77,7 +77,6 @@ router.post('/chat', checkLocalAccess, async (req, res) => {
       messages,
       modelId: model,
       isEphemeral: false,
-      timeoutMs: 300000,
       onEvent: (event, data) => sendEvent(event, data),
       sessionId,
     });
