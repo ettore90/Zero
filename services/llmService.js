@@ -28,6 +28,10 @@ const PROVIDER_URLS = {
   anthropic: 'https://api.anthropic.com/v1',
   stepfun: 'https://api.stepfun.com/v1',
   gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  // SAI Library (Stefanini's multi-provider gateway, X-Api-Key auth). Without this
+  // default a SAI model config with no baseUrl fell through to env.OLLAMA_SERVER.
+  sai: 'https://sai-library.saiapplications.com/api/prompt/v1',
+  'sai-vertex': 'https://sai-library.saiapplications.com/api/prompt/v1',
 };
 
 const execAsync = promisify(execCb);
@@ -726,6 +730,25 @@ function buildAzureFoundryHeaders(modelConfig) {
   return headers;
 }
 
+// SAI Library fronts two upstream shapes behind one OpenAI-looking endpoint.
+// OpenAI's own gpt-5.x models (gpt-5.1/5.2/5.4/5.5, gpt-5.6-luna, gpt-5.6-terra) are
+// served through the Responses API, which wants FLAT tool definitions
+// ({ type, name, description, parameters }) and rejects both `functions` and the
+// nested { type, function: {...} } form. Everything else on SAI — including the
+// Azure-hosted `*-emea` gpt-5 deployments, gpt-4o/4.1, o3/o4 and grok — is plain
+// chat-completions and wants the nested form. Verified live 2026-09-10.
+function saiUsesResponsesTools(modelId = '') {
+  const model = String(modelId || '').toLowerCase();
+  return /^gpt-5/.test(model) && !model.includes('emea');
+}
+
+// Gemini models on SAI are proxied to Google's native API, which accepts neither tool
+// shape and whose function calls are not mapped back into the OpenAI response — so
+// tools are dropped rather than sent into a guaranteed 400.
+function saiRejectsTools(modelId = '') {
+  return /gemini/i.test(String(modelId || ''));
+}
+
 function isReasoningStyleModel(modelId = '') {
   const model = String(modelId || '').toLowerCase();
   return model.includes('gpt-5') || model.startsWith('o1') || model.startsWith('o3') || model.startsWith('o4');
@@ -1210,74 +1233,10 @@ function buildLLMRequest(messages, modelConfig, tools, agent = null) {
     } else if (systemContent) {
       processedMessages.unshift({ role: 'user', content: systemContent });
     }
-  } else if (provider === 'sai') {
-    const expanded = [];
-    const consumedToolIndexes = new Set();
-
-    for (let i = 0; i < messages.length; i++) {
-      if (consumedToolIndexes.has(i)) continue;
-      const m = messages[i];
-
-      if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
-        const followingToolMessages = [];
-        let j = i + 1;
-        while (j < messages.length && messages[j]?.role === 'tool') {
-          followingToolMessages.push({ ...messages[j], __index: j });
-          j++;
-        }
-
-        const usedToolIndexes = new Set();
-
-        m.tool_calls.forEach((tc, idx) => {
-          expanded.push({
-            role: 'assistant',
-            content: idx === 0 ? (m.content || '') : '',
-            function_call: {
-              name: tc.function?.name || '',
-              arguments: tc.function?.arguments || '{}',
-            },
-            _tool_call_id: tc.id,
-          });
-
-          let matchedTool = followingToolMessages.find(
-            (tm) => !usedToolIndexes.has(tm.__index) && tm.tool_call_id === tc.id
-          );
-
-          if (!matchedTool && followingToolMessages.length === 1) {
-            matchedTool = followingToolMessages[0];
-          }
-
-          if (matchedTool) {
-            usedToolIndexes.add(matchedTool.__index);
-            consumedToolIndexes.add(matchedTool.__index);
-
-            expanded.push({
-              role: 'function',
-              name: matchedTool.name || tc.function?.name || 'unknown_tool',
-              content: matchedTool.content || '',
-              tool_call_id: matchedTool.tool_call_id,
-            });
-          }
-        });
-
-        continue;
-      }
-
-      if (m.role === 'tool') {
-        expanded.push({
-          role: 'function',
-          name: m.name || 'unknown_tool',
-          content: m.content || '',
-          tool_call_id: m.tool_call_id,
-        });
-        continue;
-      }
-
-      expanded.push({ role: m.role, content: m.content || '' });
-    }
-
-    processedMessages = expanded;
   }
+  // SAI Library needs no message rewriting: its /api/prompt/v1/chat/completions
+  // endpoint accepts standard OpenAI history (assistant.tool_calls + role:"tool"),
+  // for both its chat-completions-backed and Responses-backed models.
 
   // For Anthropic/Claude: attach cache_control to system blocks marked with _cacheHint.
   // This enables prompt caching on the static system prompt and rolling summary blocks.
@@ -1388,7 +1347,13 @@ function buildLLMRequest(messages, modelConfig, tools, agent = null) {
 
   if (tools && tools.length > 0) {
     if (provider === 'sai') {
-      body.functions = tools.map(({ function: fn }) => fn);
+      if (saiRejectsTools(modelId)) {
+        console.warn(`[LLMRequest][sai] dropping ${tools.length} tool(s): model ${modelId} is proxied to Google and cannot use them`);
+      } else if (saiUsesResponsesTools(modelId)) {
+        body.tools = tools.map(({ function: fn }) => ({ type: 'function', ...fn }));
+      } else {
+        body.tools = tools.map(({ weight: _w, group: _g, ...t }) => t);
+      }
     } else if (!isSaiVertex && provider !== 'sai-nested') {
       body.tools = tools.map(({ weight: _w, group: _g, ...t }) => t);
       if (provider === 'openrouter') {

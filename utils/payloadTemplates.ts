@@ -45,14 +45,22 @@ const apiKey = config.apiKey ? config.apiKey.trim() : "";
 
 // 2. Construct Payload
 const payload = {
-  model: config.modelId || "emea-gpt-4.1",
+  model: config.modelId || "gpt-5.6-luna",
   messages: messages,
   stream: false
 };
 
-// SAI requires functions format, not tools
+// Tool format depends on the upstream behind SAI:
+// - OpenAI gpt-5.x (gpt-5.6-luna, gpt-5.6-terra, ...) => Responses API, FLAT tools
+// - everything else (gpt-4o/4.1, *-emea, o3/o4, grok) => nested chat-completions tools
+// - gemini-* => proxied to Google, tools are not usable at all
 if (tools && tools.length > 0) {
-  payload.functions = tools.map(({ function: fn }) => fn);
+  const m = (config.modelId || '').toLowerCase();
+  if (!/gemini/.test(m)) {
+    payload.tools = /^gpt-5/.test(m) && !m.includes('emea')
+      ? tools.map(({ function: fn }) => ({ type: 'function', ...fn }))
+      : tools;
+  }
 }
 
 return {

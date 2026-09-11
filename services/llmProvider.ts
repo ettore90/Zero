@@ -523,8 +523,17 @@ const callProvider = async (
           stream: false
         };
         if (tools && tools.length > 0) {
-            // SAI expects Functions API format: { name, description, parameters } (no 'type' wrapper)
-            payload.functions = tools.map(({ function: fn }) => fn);
+            const lowerModel = cleanModelId.toLowerCase();
+            if (/gemini/.test(lowerModel)) {
+                // Proxied to Google's native API: neither tool shape is accepted there.
+                console.warn(`[LLMProvider] SAI: dropping tools, ${cleanModelId} cannot use them`);
+            } else if (/^gpt-5/.test(lowerModel) && !lowerModel.includes('emea')) {
+                // OpenAI gpt-5.x (incl. gpt-5.6-luna/terra) is served via the Responses
+                // API, which wants FLAT tool definitions and rejects `functions`.
+                payload.tools = tools.map(({ function: fn }) => ({ type: 'function', ...fn }));
+            } else {
+                payload.tools = tools.map(({ weight: _w, group: _g, ...t }: any) => t);
+            }
         }
         isStreaming = false;
     } else {

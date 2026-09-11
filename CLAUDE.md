@@ -163,3 +163,45 @@ result or shell command needs to reference a path the user will actually open on
 - Multi-model "fallback" chains: `ModelConfig.isFallback` + `executeChatRequest`'s waterfall logic in
   `services/llmProvider.ts` — when a primary model call fails (non-abort), it retries against the first
   other model flagged `isFallback`.
+
+## The SAI Library provider (`provider: "sai"`)
+
+SAI Library (`https://sai-library.saiapplications.com`) is Stefanini's internal multi-provider
+model gateway, available to every employee. Its web UI is Entra-only, but the API takes a
+platform API key — created in the UI under *Settings → API Keys* (`test` keys: 1000 requests,
+instant; `renewable`: admin approval). Public docs: <https://sai-library-docs.saiapplications.com/docs/>.
+The documented surface is prompt-template execution (`POST /api/templates/{id}/execute` with
+`{"inputs":{...}}`) and MCP (`POST /api/mcp`), **not** chat. The endpoint Zero uses is the
+undocumented OpenAI-compatible one, mapped live on 2026-09-10:
+
+```
+POST https://sai-library.saiapplications.com/api/prompt/v1/chat/completions
+X-Api-Key: <sai platform key>        # Authorization: Bearer <key> also accepted
+Content-Type: application/json
+
+{ "model": "gpt-5.6-luna", "messages": [ ...standard OpenAI history... ] }
+```
+
+- **`stream` must be false/absent.** With `stream:true` the gateway tries to JSON-parse the
+  upstream SSE and fails with `'d' is an invalid start of a value`.
+- **Messages are plain OpenAI**: `system`/`user`/`assistant`/`tool`, `assistant.tool_calls`
+  and `role:"tool"` results all round-trip, on every model family. No legacy
+  `function_call`/`role:"function"` rewriting is needed (Zero used to do this).
+- **Tool format depends on the upstream behind the model** — this is the whole trap:
+  | Models | Backed by | Tools |
+  | --- | --- | --- |
+  | OpenAI `gpt-5.x` (`gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.1/5.2/5.4/5.5`) | OpenAI **Responses API** | **flat**: `{type:"function", name, description, parameters}` |
+  | `gpt-4o*`, `gpt-4.1*`, `*-emea` (incl. `gpt-5.4-mini-emea`), `o3/o4-mini`, `grok-*` | chat completions | **nested**: `{type:"function", function:{...}}` |
+  | `gemini-*` | Google native API | neither works; function calls are not mapped back — tools are dropped |
+  Sending `functions` (the old Zero behaviour) is rejected outright by the Responses-backed
+  models — that is why `luna`/`terra` never worked. Note the `-emea` gpt-5 deployments are
+  Azure, so they want the *nested* form despite the name; `saiUsesResponsesTools()` in
+  `services/llmService.js` encodes the rule.
+- `temperature` is rejected on the Responses-backed models (`isReasoningStyleModel` already
+  omits it for anything `gpt-5*`). `max_tokens` and `reasoning:{effort}` are accepted.
+- Multimodal works on both families: `content` as `[{type:"text"},{type:"image_url",image_url:{url:"data:..."}}]`.
+- Responses come back in chat-completion shape either way; Responses-backed models are
+  recognisable by `"object":"response"` and a `resp_...` id.
+- **`GET /api/models`** (same key) returns the full catalog — ~92 entries with `name`,
+  `provider`, `inputPrice`/`outputPrice`, `allowFunctionCalling`, `acceptsMcp`,
+  `allowImageUpload`, `deprecationStatus`. It is the authoritative list of valid `model` values.
