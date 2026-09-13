@@ -2,12 +2,82 @@ import { Router } from 'express';
 import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { sessionStore } from '../services/runtime.js';
 import { deleteVisibleAgent, getVisibleAgent, listCanonicalVisibleAgents, listAgents, replaceAgents, upsertAgent } from '../services/agentStore.js';
+import { resolveMcpBundlesForAgent } from '../services/mcpBundleResolver.js';
+import { getPluginAccessGrant, listPluginAccessGrants, upsertPluginAccessGrant, deletePluginAccessGrant, createPluginAccessRequest, listPluginAccessRequests, decidePluginAccessRequest, listPluginAccessEvents } from '../services/pluginAccessStore.js';
+import { listPluginCatalogForAgent } from '../services/pluginCatalog.js';
 import { createPromptBlock, createPromptBlockVersion, createPromptVersion, deletePromptBlock, getCurrentPromptVersion, getOrBootstrapGlobalPromptDocument, getOrBootstrapPromptDocumentByAgent, getPromptBlockTypeAssignment, listPromptBlockTypeAssignments, listPromptBlocks, listPromptBlockVersions, listPromptDocumentBlockRefs, listPromptVersions, publishPromptCompositionSnapshot, resolveEffectivePromptBlocksForAgentDocument, resolveEffectivePromptForAgentDocument, resolveEffectivePromptRefsForAgentDocument, resolvePromptBlockInventoryForAgentDocument, resolvePromptFinalByCompositionForDocument, rollbackPromptVersion, syncPromptDocumentBlockRefs, upsertPromptBlockTypeAssignment, upsertPromptDocumentBlockRef, upsertPromptDocumentBlockRefWithoutSync } from '../services/promptStore.js';
 
 const router = Router();
 
 function resolveScopedUsername(req) {
   return String(req.username || req.user?.username || '').trim();
+}
+
+const PLUGIN_GRANT_BODY_KEYS = new Set(['packageKey', 'versionId', 'sourceCommit', 'mode', 'exclusions', 'approvedFeatures']);
+const PLUGIN_REQUEST_BODY_KEYS = new Set(['agentId', 'packageKey', 'versionId', 'sourceCommit', 'selections', 'reason']);
+const PLUGIN_DECISION_BODY_KEYS = new Set(['status']);
+const PLUGIN_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+function requirePluginOperator(req, res) {
+  // attachUserContext accepts an unauthenticated username fallback; plugin access APIs
+  // deliberately require the actual persisted session established by auth.routes.
+  if (!req.session || !req.user || req.user.isActive === false || req.user.role !== 'admin') {
+    res.status(401).json({ error: 'authenticated operator session required' });
+    return null;
+  }
+  return { username: req.user.username, actor: req.user.username };
+}
+function pluginPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
+}
+function rejectPluginFields(body, allowed) {
+  if (!pluginPlainObject(body)) throw new Error('request body must be a plain object');
+  for (const key of Object.keys(body)) if (!allowed.has(key)) throw new Error(`unsupported request body field: ${key}`);
+}
+function rejectPluginQuery(query, allowed) {
+  for (const key of Object.keys(query || {})) if (!allowed.has(key)) throw new Error(`unsupported query field: ${key}`);
+}
+function pluginScope(value) {
+  const packageKey = typeof value?.packageKey === 'string' ? value.packageKey : '';
+  const versionId = typeof value?.versionId === 'string' ? value.versionId : null;
+  const sourceCommit = typeof value?.sourceCommit === 'string' ? value.sourceCommit : null;
+  if (!PLUGIN_IDENTIFIER.test(packageKey)) throw new Error('packageKey must be a safe identifier string');
+  if ((versionId === null) === (sourceCommit === null)) throw new Error('exactly one of versionId or sourceCommit is required');
+  if (versionId !== null && !PLUGIN_IDENTIFIER.test(versionId)) throw new Error('versionId must be a safe identifier string');
+  if (sourceCommit !== null && !PLUGIN_IDENTIFIER.test(sourceCommit)) throw new Error('sourceCommit must be a safe identifier string');
+  return { packageKey, ...(versionId !== null ? { versionId } : { sourceCommit }) };
+}
+function pluginAgent(req, operator, agentId) {
+  const agent = getVisibleAgent(operator.username, agentId);
+  if (!agent) throw new Error('agent not found');
+  return String(agent.id);
+}
+function pluginError(res, error) {
+  const message = String(error?.message || 'invalid plugin access request');
+  const status = message === 'agent not found' || /unknown package\/version scope|Plugin package(?: version)? not found/.test(message) ? 404
+    : /^only pending requests can be decided$/.test(message) ? 409 : 400;
+  return res.status(status).json({ error: message });
+}
+function pluginSelectionsAreNonempty(selections) {
+  return ['skills', 'bundles', 'tools'].some((key) => Array.isArray(selections?.[key]) && selections[key].length > 0);
+}
+function serializePluginGrant(grant) {
+  return grant && { id: grant.id, agentId: grant.agentId, packageVersionId: grant.packageVersionId, mode: grant.mode, exclusions: grant.exclusions, approvedFeatures: grant.approvedFeatures, actor: grant.actor, createdAt: grant.createdAt, updatedAt: grant.updatedAt };
+}
+function serializePluginRequest(request) {
+  return request && { id: request.id, agentId: request.agentId, packageVersionId: request.packageVersionId, selections: request.selections, reason: request.reason, status: request.status, requesterActor: request.requesterActor, decisionActor: request.decisionActor, decisionAt: request.decisionAt, createdAt: request.createdAt, updatedAt: request.updatedAt };
+}
+function serializePluginEvent(event) {
+  return event && { id: event.id, grantId: event.grantId, requestId: event.requestId, packageVersionId: event.packageVersionId, event: event.event, actor: event.actor, details: event.details, createdAt: event.createdAt };
+}
+function serializePluginCatalog(entries) {
+  return entries.map((entry) => ({
+    package: { packageKey: entry.package.packageKey, status: entry.package.status },
+    version: { id: entry.version.id, version: entry.version.version, status: entry.version.status },
+    access: entry.access,
+    ...(entry.access === 'direct' ? { features: entry.features } : {}),
+    ...(entry.requestableFeatures ? { requestableFeatures: entry.requestableFeatures } : {}),
+  }));
 }
 
 function normalizeAgentType(role) {
@@ -305,6 +375,125 @@ function resolveEffectivePromptRefTarget(effectiveRefs, selector) {
 }
 
 
+// Plugin access is intentionally operator-only: HTTP sessions identify users, not an
+// executing agent. No client-provided agent identity is treated as a caller identity.
+router.get('/agents/:id/plugins/catalog', checkLocalAccess, (req, res) => {
+  const operator = requirePluginOperator(req, res);
+  if (!operator) return;
+  try {
+    rejectPluginQuery(req.query, new Set());
+    const agentId = pluginAgent(req, operator, req.params.id);
+    return res.json({ agentId, plugins: serializePluginCatalog(listPluginCatalogForAgent({ username: operator.username, agentId })) });
+  } catch (error) { return pluginError(res, error); }
+});
+
+router.get('/agents/:id/plugin-grants', checkLocalAccess, (req, res) => {
+  const operator = requirePluginOperator(req, res);
+  if (!operator) return;
+  try {
+    const agentId = pluginAgent(req, operator, req.params.id);
+    const hasPackageKey = Object.prototype.hasOwnProperty.call(req.query, 'packageKey');
+    const scope = hasPackageKey ? pluginScope(req.query) : null;
+    if (!hasPackageKey && (Object.prototype.hasOwnProperty.call(req.query, 'versionId') || Object.prototype.hasOwnProperty.call(req.query, 'sourceCommit'))) throw new Error('packageKey is required with a version selector');
+    if (scope) return res.json({ grant: serializePluginGrant(getPluginAccessGrant({ username: operator.username, agentId, scope })) });
+    return res.json({ grants: listPluginAccessGrants({ username: operator.username, agentId }).map(serializePluginGrant) });
+  } catch (error) { return pluginError(res, error); }
+});
+
+router.put('/agents/:id/plugin-grants', checkLocalAccess, (req, res) => {
+  const operator = requirePluginOperator(req, res);
+  if (!operator) return;
+  try {
+    rejectPluginFields(req.body, PLUGIN_GRANT_BODY_KEYS);
+    const agentId = pluginAgent(req, operator, req.params.id);
+    const scope = pluginScope(req.body);
+    if (!['direct', 'request', 'unavailable'].includes(req.body.mode)) throw new Error('mode must be direct, request, or unavailable');
+    return res.status(200).json({ grant: serializePluginGrant(upsertPluginAccessGrant({ username: operator.username, agentId, scope, mode: req.body.mode, ...(Object.hasOwn(req.body, 'exclusions') ? { exclusions: req.body.exclusions } : {}), ...(Object.hasOwn(req.body, 'approvedFeatures') ? { approvedFeatures: req.body.approvedFeatures } : {}), actor: operator.actor })) });
+  } catch (error) { return pluginError(res, error); }
+});
+
+router.delete('/agents/:id/plugin-grants', checkLocalAccess, (req, res) => {
+  const operator = requirePluginOperator(req, res);
+  if (!operator) return;
+  try {
+    const agentId = pluginAgent(req, operator, req.params.id);
+    const scope = pluginScope(req.query);
+    if (!deletePluginAccessGrant({ username: operator.username, agentId, scope, actor: operator.actor })) return res.status(404).json({ error: 'plugin grant not found' });
+    return res.status(204).end();
+  } catch (error) { return pluginError(res, error); }
+});
+
+router.get('/plugin-access/grants', checkLocalAccess, (req, res) => {
+  const operator = requirePluginOperator(req, res);
+  if (!operator) return;
+  try {
+    const allowed = new Set(['agentId', 'packageKey', 'versionId', 'sourceCommit']);
+    for (const key of Object.keys(req.query)) if (!allowed.has(key)) throw new Error(`unsupported query field: ${key}`);
+    const input = { username: operator.username };
+    if (req.query.agentId !== undefined) input.agentId = pluginAgent(req, operator, req.query.agentId);
+    if (req.query.packageKey !== undefined) input.scope = pluginScope(req.query);
+    else if (req.query.versionId !== undefined || req.query.sourceCommit !== undefined) throw new Error('packageKey is required with a version selector');
+    return res.json({ grants: listPluginAccessGrants(input).map(serializePluginGrant) });
+  } catch (error) { return pluginError(res, error); }
+});
+
+router.post('/plugin-access/requests', checkLocalAccess, (req, res) => {
+  const operator = requirePluginOperator(req, res);
+  if (!operator) return;
+  try {
+    rejectPluginFields(req.body, PLUGIN_REQUEST_BODY_KEYS);
+    const agentId = pluginAgent(req, operator, req.body.agentId);
+    const scope = pluginScope(req.body);
+    if (!pluginSelectionsAreNonempty(req.body.selections)) throw new Error('selections must contain at least one feature');
+    const grant = getPluginAccessGrant({ username: operator.username, agentId, scope });
+    // A direct baseline can request newly discovered features, but cannot promote
+    // them itself. unavailable/no-grant remains default deny.
+    if (!grant || !['request', 'direct'].includes(grant.mode)) return res.status(409).json({ error: 'plugin request requires an exact request- or direct-mode grant' });
+    const request = createPluginAccessRequest({ username: operator.username, agentId, scope, selections: req.body.selections, ...(Object.hasOwn(req.body, 'reason') ? { reason: req.body.reason } : {}), requesterActor: operator.actor });
+    return res.status(201).json({ request: serializePluginRequest(request) });
+  } catch (error) { return pluginError(res, error); }
+});
+
+router.get('/plugin-access/requests', checkLocalAccess, (req, res) => {
+  const operator = requirePluginOperator(req, res);
+  if (!operator) return;
+  try {
+    const allowed = new Set(['agentId', 'packageKey', 'versionId', 'sourceCommit', 'status']);
+    for (const key of Object.keys(req.query)) if (!allowed.has(key)) throw new Error(`unsupported query field: ${key}`);
+    const input = { username: operator.username };
+    if (req.query.agentId !== undefined) input.agentId = pluginAgent(req, operator, req.query.agentId);
+    if (req.query.packageKey !== undefined) input.scope = pluginScope(req.query);
+    else if (req.query.versionId !== undefined || req.query.sourceCommit !== undefined) throw new Error('packageKey is required with a version selector');
+    if (req.query.status !== undefined) input.status = req.query.status;
+    return res.json({ requests: listPluginAccessRequests(input).map(serializePluginRequest) });
+  } catch (error) { return pluginError(res, error); }
+});
+
+router.post('/plugin-access/requests/:requestId/decision', checkLocalAccess, (req, res) => {
+  const operator = requirePluginOperator(req, res);
+  if (!operator) return;
+  try {
+    rejectPluginFields(req.body, PLUGIN_DECISION_BODY_KEYS);
+    if (!['approved', 'rejected', 'cancelled'].includes(req.body.status)) throw new Error('status must be approved, rejected, or cancelled');
+    const request = decidePluginAccessRequest({ username: operator.username, requestId: req.params.requestId, status: req.body.status, decisionActor: operator.actor });
+    return res.json({ request: serializePluginRequest(request) });
+  } catch (error) { return pluginError(res, error); }
+});
+
+router.get('/plugin-access/events', checkLocalAccess, (req, res) => {
+  const operator = requirePluginOperator(req, res);
+  if (!operator) return;
+  try {
+    const allowed = new Set(['packageKey', 'versionId', 'sourceCommit', 'requestId', 'grantId']);
+    for (const key of Object.keys(req.query)) if (!allowed.has(key)) throw new Error(`unsupported query field: ${key}`);
+    const ids = ['requestId', 'grantId'].filter((key) => req.query[key] !== undefined);
+    if (ids.length > 1 || (ids.length && req.query.packageKey !== undefined)) throw new Error('use exactly one event filter');
+    const input = ids.length ? { username: operator.username, [ids[0]]: req.query[ids[0]] } : req.query.packageKey !== undefined ? { username: operator.username, scope: pluginScope(req.query) } : { username: operator.username };
+    if (req.query.packageKey === undefined && (req.query.versionId !== undefined || req.query.sourceCommit !== undefined)) throw new Error('packageKey is required with a version selector');
+    return res.json({ events: listPluginAccessEvents(input).map(serializePluginEvent) });
+  } catch (error) { return pluginError(res, error); }
+});
+
 router.get('/agents', checkLocalAccess, (req, res) => {
   const username = resolveScopedUsername(req);
   if (!username) return res.status(401).json({ error: 'authenticated username required' });
@@ -429,6 +618,48 @@ router.delete('/agents/:id', checkLocalAccess, (req, res) => {
   }
 
   return res.json({ success: true, deletedId: String(existing.id) });
+});
+
+router.get('/agents/:id/mcp-bundles', checkLocalAccess, (req, res) => {
+  const username = resolveScopedUsername(req);
+  if (!username) return res.status(401).json({ error: 'authenticated username required' });
+
+  const existing = getVisibleAgent(username, req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Agent not found' });
+
+  try {
+    const resolved = resolveMcpBundlesForAgent(existing);
+    return res.json({
+      agentId: existing.id,
+      bundles: (Array.isArray(resolved?.bundles) ? resolved.bundles : []).map((bundle) => ({
+        id: bundle.id,
+        label: bundle.label,
+        transport: bundle.transport,
+        mode: bundle.mode,
+        risk: bundle.risk,
+        capabilities: Array.isArray(bundle.capabilities) ? bundle.capabilities : [],
+      })),
+      toolContracts: (Array.isArray(resolved?.toolContracts) ? resolved.toolContracts : []).map((contract) => ({
+        name: contract.name,
+        bundleId: contract.bundleId,
+        label: contract.label,
+        risk: contract.risk,
+        mode: contract.mode,
+        executionAvailable: false,
+      })),
+      mode: resolved?.mode,
+      eligible: resolved?.eligible,
+      reason: resolved?.reason,
+      allowedToolsPolicy: {
+        setting: resolved?.allowedToolsPolicy?.setting,
+        mcpToolNames: Array.isArray(resolved?.allowedToolsPolicy?.mcpToolNames) ? resolved.allowedToolsPolicy.mcpToolNames : [],
+        mcpToolExecutionAvailable: false,
+        invalidAssignment: Boolean(resolved?.allowedToolsPolicy?.invalidAssignment),
+      },
+    });
+  } catch {
+    return res.status(500).json({ error: 'unable to resolve agent MCP bundles' });
+  }
 });
 
 router.get('/agents/:id/prompt-document', checkLocalAccess, (req, res) => {

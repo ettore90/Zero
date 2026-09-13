@@ -34,6 +34,7 @@ export function initDb(dbPath) {
   _db.pragma('synchronous = NORMAL');
   _db.pragma('foreign_keys = ON');
   _ensureRuntimeSchema(_db);
+  _migratePluginAccessGrants(_db);
   _createSchema(_db);
   _ensureRuntimeSchema(_db);
   console.log(`[db] SQLite initialized at ${dbPath}`);
@@ -484,6 +485,7 @@ function _createSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_prompt_package_artifacts_package_version_id ON prompt_package_artifacts(package_version_id);
     CREATE INDEX IF NOT EXISTS idx_prompt_package_artifacts_prompt_block_id ON prompt_package_artifacts(prompt_block_id);
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_artifacts_prompt_block_version_id ON prompt_package_artifacts(prompt_block_version_id);
     CREATE INDEX IF NOT EXISTS idx_prompt_package_artifacts_content_hash ON prompt_package_artifacts(content_hash);
 
     CREATE TABLE IF NOT EXISTS prompt_package_events (
@@ -501,6 +503,142 @@ function _createSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_prompt_package_events_package_version_id ON prompt_package_events(package_version_id);
     CREATE INDEX IF NOT EXISTS idx_prompt_package_events_event ON prompt_package_events(event);
     CREATE INDEX IF NOT EXISTS idx_prompt_package_events_created_at ON prompt_package_events(created_at DESC);
+
+    -- Access records are declarative only. They never activate a package or configure tools.
+    CREATE TABLE IF NOT EXISTS plugin_access_grants (
+      id TEXT PRIMARY KEY,
+      owner_username TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      package_version_id TEXT NOT NULL,
+      mode TEXT NOT NULL CHECK (mode IN ('direct', 'request', 'unavailable')),
+      exclusions TEXT NOT NULL DEFAULT '{"skills":[],"bundles":[],"tools":[]}',
+      approved_features TEXT NOT NULL DEFAULT '{"skills":[],"bundles":[],"tools":[]}',
+      actor TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (owner_username, agent_id, package_version_id),
+      FOREIGN KEY (package_version_id) REFERENCES prompt_package_versions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_plugin_access_grants_owner_agent ON plugin_access_grants(owner_username, agent_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_plugin_access_grants_owner_version ON plugin_access_grants(owner_username, package_version_id);
+
+    CREATE TABLE IF NOT EXISTS plugin_access_requests (
+      id TEXT PRIMARY KEY,
+      owner_username TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      package_version_id TEXT NOT NULL,
+      selections TEXT NOT NULL DEFAULT '{"skills":[],"bundles":[],"tools":[]}',
+      reason TEXT,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+      requester_actor TEXT,
+      decision_actor TEXT,
+      decision_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (package_version_id) REFERENCES prompt_package_versions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_plugin_access_requests_owner_agent ON plugin_access_requests(owner_username, agent_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_plugin_access_requests_owner_status_version ON plugin_access_requests(owner_username, status, package_version_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS plugin_access_events (
+      id TEXT PRIMARY KEY,
+      owner_username TEXT NOT NULL,
+      grant_id TEXT REFERENCES plugin_access_grants(id) ON DELETE SET NULL,
+      request_id TEXT REFERENCES plugin_access_requests(id) ON DELETE SET NULL,
+      package_version_id TEXT NOT NULL REFERENCES prompt_package_versions(id) ON DELETE CASCADE,
+      event TEXT NOT NULL,
+      actor TEXT,
+      details TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_plugin_access_events_owner_grant ON plugin_access_events(owner_username, grant_id, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_plugin_access_events_owner_request ON plugin_access_events(owner_username, request_id, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_plugin_access_events_owner_version ON plugin_access_events(owner_username, package_version_id, created_at ASC);
+  `);
+
+  db.exec(`
+    -- Declarative authorization records only. No credential material or request metadata is stored.
+    CREATE TABLE IF NOT EXISTS github_private_access_requests (
+      id TEXT PRIMARY KEY,
+      owner_username TEXT NOT NULL,
+      source_repository TEXT NOT NULL,
+      source_ref TEXT NOT NULL,
+      source_commit TEXT NOT NULL,
+      purpose TEXT NOT NULL CHECK (purpose = 'read_only'),
+      status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'revoked')),
+      requested_by TEXT,
+      decided_by TEXT,
+      requested_at INTEGER NOT NULL,
+      decided_at INTEGER,
+      expires_at INTEGER,
+      revoked_by TEXT,
+      revoked_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK ((status = 'pending' AND decided_at IS NULL AND expires_at IS NULL AND revoked_at IS NULL)
+        OR (status = 'approved' AND decided_at IS NOT NULL AND expires_at IS NOT NULL AND revoked_at IS NULL)
+        OR (status = 'rejected' AND decided_at IS NOT NULL AND expires_at IS NULL AND revoked_at IS NULL)
+        OR (status = 'revoked' AND decided_at IS NOT NULL AND expires_at IS NOT NULL AND revoked_at IS NOT NULL))
+    );
+    CREATE INDEX IF NOT EXISTS idx_github_private_access_requests_owner ON github_private_access_requests(owner_username, requested_at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_github_private_access_requests_effective ON github_private_access_requests(owner_username, source_repository, source_ref, source_commit, purpose, status, expires_at DESC);
+
+    CREATE TABLE IF NOT EXISTS github_private_access_events (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES github_private_access_requests(id) ON DELETE CASCADE,
+      owner_username TEXT NOT NULL,
+      source_repository TEXT NOT NULL,
+      source_ref TEXT NOT NULL,
+      source_commit TEXT NOT NULL,
+      purpose TEXT NOT NULL CHECK (purpose = 'read_only'),
+      event TEXT NOT NULL CHECK (event IN ('requested', 'approved', 'rejected', 'revoked')),
+      actor TEXT,
+      occurred_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_github_private_access_events_request ON github_private_access_events(request_id, occurred_at ASC, id ASC);
+    CREATE INDEX IF NOT EXISTS idx_github_private_access_events_owner ON github_private_access_events(owner_username, occurred_at DESC, id DESC);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prompt_package_sync_sources (
+      id TEXT PRIMARY KEY,
+      source_key TEXT NOT NULL UNIQUE,
+      provider TEXT NOT NULL CHECK (provider = 'github'),
+      repository TEXT NOT NULL,
+      source_ref TEXT NOT NULL,
+      pinned_commit TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+      last_seen_commit TEXT,
+      last_staged_commit TEXT,
+      last_sync_at INTEGER,
+      last_error TEXT,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_sync_sources_enabled ON prompt_package_sync_sources(enabled);
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_sync_sources_repository_ref ON prompt_package_sync_sources(repository, source_ref);
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_sync_sources_updated_at ON prompt_package_sync_sources(updated_at DESC);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prompt_package_sync_jobs (
+      id TEXT PRIMARY KEY,
+      source_key TEXT NOT NULL UNIQUE REFERENCES prompt_package_sync_sources(source_key) ON DELETE CASCADE,
+      enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+      interval_seconds INTEGER NOT NULL CHECK (interval_seconds BETWEEN 60 AND 86400),
+      descriptor TEXT NOT NULL,
+      package TEXT NOT NULL,
+      version TEXT NOT NULL,
+      document_key TEXT NOT NULL,
+      artifact_mappings TEXT NOT NULL,
+      "references" TEXT NOT NULL,
+      details TEXT NOT NULL,
+      created_by TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_prompt_package_sync_jobs_enabled_updated_at ON prompt_package_sync_jobs(enabled, updated_at DESC);
   `);
 
   db.exec(`
@@ -543,6 +681,7 @@ function _createSchema(db) {
   `);
 
   _migratePromptPackageSchema(db);
+  _migratePluginAccessGrants(db);
   _migrateStrategyPlans(db);
 }
 
@@ -572,6 +711,7 @@ function _migratePromptPackageSchema(db) {
       && foreignKeys.some((foreignKey) => foreignKey.seq === 0 && foreignKey.from === 'package_id' && foreignKey.to === 'package_id')
       && foreignKeys.some((foreignKey) => foreignKey.seq === 1 && foreignKey.from === 'package_version_id' && foreignKey.to === 'id'));
 
+  db.exec('CREATE INDEX IF NOT EXISTS idx_prompt_package_artifacts_prompt_block_version_id ON prompt_package_artifacts(prompt_block_version_id)');
   if (hasPackageStatusCheck && hasVersionStatusCheck && hasVersionPackageIdUnique && hasEventCompositeForeignKey) return;
 
   const invalidStatus = db.prepare(`
@@ -669,6 +809,7 @@ function _migratePromptPackageSchema(db) {
       CREATE INDEX idx_prompt_package_versions_created_at ON prompt_package_versions(created_at DESC);
       CREATE INDEX idx_prompt_package_artifacts_package_version_id ON prompt_package_artifacts(package_version_id);
       CREATE INDEX idx_prompt_package_artifacts_prompt_block_id ON prompt_package_artifacts(prompt_block_id);
+      CREATE INDEX idx_prompt_package_artifacts_prompt_block_version_id ON prompt_package_artifacts(prompt_block_version_id);
       CREATE INDEX idx_prompt_package_artifacts_content_hash ON prompt_package_artifacts(content_hash);
       CREATE INDEX idx_prompt_package_events_package_id ON prompt_package_events(package_id, created_at ASC);
       CREATE INDEX idx_prompt_package_events_package_version_id ON prompt_package_events(package_version_id);
@@ -681,6 +822,77 @@ function _migratePromptPackageSchema(db) {
     transactionStarted = false;
   } catch (error) {
     if (transactionStarted) db.exec('ROLLBACK');
+    throw error;
+  } finally {
+    if (foreignKeysWereEnabled) db.pragma('foreign_keys = ON');
+  }
+}
+
+function _migratePluginAccessGrants(db) {
+  const grantColumns = db.prepare('PRAGMA table_info(plugin_access_grants)').all();
+  if (!grantColumns.length) return;
+  const requestColumns = db.prepare('PRAGMA table_info(plugin_access_requests)').all();
+  const eventColumns = db.prepare('PRAGMA table_info(plugin_access_events)').all();
+  const hasOwner = (columns) => columns.some((column) => column.name === 'owner_username' && column.notnull);
+  const hasApprovedFeatures = grantColumns.some((column) => column.name === 'approved_features');
+  const grantNeedsMigration = !hasOwner(grantColumns) || !hasApprovedFeatures;
+  const legacyApprovedFeatures = hasApprovedFeatures ? 'approved_features' : "'{\"skills\":[],\"bundles\":[],\"tools\":[]}'";
+  if (!grantNeedsMigration && hasOwner(requestColumns) && hasOwner(eventColumns)) return;
+
+  const foreignKeysWereEnabled = db.pragma('foreign_keys', { simple: true }) === 1;
+  try {
+    if (foreignKeysWereEnabled) db.pragma('foreign_keys = OFF');
+    db.exec('BEGIN IMMEDIATE');
+    db.exec(`
+      ALTER TABLE plugin_access_events RENAME TO plugin_access_events_legacy;
+      ALTER TABLE plugin_access_requests RENAME TO plugin_access_requests_legacy;
+      ALTER TABLE plugin_access_grants RENAME TO plugin_access_grants_legacy;
+      CREATE TABLE plugin_access_grants (
+        id TEXT PRIMARY KEY, owner_username TEXT NOT NULL, agent_id TEXT NOT NULL, package_version_id TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK (mode IN ('direct', 'request', 'unavailable')),
+        exclusions TEXT NOT NULL DEFAULT '{"skills":[],"bundles":[],"tools":[]}',
+        approved_features TEXT NOT NULL DEFAULT '{"skills":[],"bundles":[],"tools":[]}', actor TEXT,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        UNIQUE (owner_username, agent_id, package_version_id),
+        FOREIGN KEY (package_version_id) REFERENCES prompt_package_versions(id) ON DELETE CASCADE
+      );
+      CREATE TABLE plugin_access_requests (
+        id TEXT PRIMARY KEY, owner_username TEXT NOT NULL, agent_id TEXT NOT NULL, package_version_id TEXT NOT NULL,
+        selections TEXT NOT NULL DEFAULT '{"skills":[],"bundles":[],"tools":[]}', reason TEXT,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+        requester_actor TEXT, decision_actor TEXT, decision_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        FOREIGN KEY (package_version_id) REFERENCES prompt_package_versions(id) ON DELETE CASCADE
+      );
+      CREATE TABLE plugin_access_events (
+        id TEXT PRIMARY KEY, owner_username TEXT NOT NULL,
+        grant_id TEXT REFERENCES plugin_access_grants(id) ON DELETE SET NULL,
+        request_id TEXT REFERENCES plugin_access_requests(id) ON DELETE SET NULL,
+        package_version_id TEXT NOT NULL REFERENCES prompt_package_versions(id) ON DELETE CASCADE,
+        event TEXT NOT NULL, actor TEXT, details TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL
+      );
+      INSERT INTO plugin_access_grants (id, owner_username, agent_id, package_version_id, mode, exclusions, approved_features, actor, created_at, updated_at)
+        SELECT id, '__legacy_unscoped__', agent_id, package_version_id, mode, exclusions,
+          ${legacyApprovedFeatures}, actor, created_at, updated_at FROM plugin_access_grants_legacy;
+      INSERT INTO plugin_access_requests (id, owner_username, agent_id, package_version_id, selections, reason, status, requester_actor, decision_actor, decision_at, created_at, updated_at)
+        SELECT id, '__legacy_unscoped__', agent_id, package_version_id, selections, reason, status, requester_actor, decision_actor, decision_at, created_at, updated_at FROM plugin_access_requests_legacy;
+      INSERT INTO plugin_access_events (id, owner_username, grant_id, request_id, package_version_id, event, actor, details, created_at)
+        SELECT id, '__legacy_unscoped__', grant_id, request_id, package_version_id, event, actor, details, created_at FROM plugin_access_events_legacy;
+      DROP TABLE plugin_access_events_legacy;
+      DROP TABLE plugin_access_requests_legacy;
+      DROP TABLE plugin_access_grants_legacy;
+      CREATE INDEX idx_plugin_access_grants_owner_agent ON plugin_access_grants(owner_username, agent_id, updated_at DESC);
+      CREATE INDEX idx_plugin_access_grants_owner_version ON plugin_access_grants(owner_username, package_version_id);
+      CREATE INDEX idx_plugin_access_requests_owner_agent ON plugin_access_requests(owner_username, agent_id, created_at DESC);
+      CREATE INDEX idx_plugin_access_requests_owner_status_version ON plugin_access_requests(owner_username, status, package_version_id, created_at DESC);
+      CREATE INDEX idx_plugin_access_events_owner_grant ON plugin_access_events(owner_username, grant_id, created_at ASC);
+      CREATE INDEX idx_plugin_access_events_owner_request ON plugin_access_events(owner_username, request_id, created_at ASC);
+      CREATE INDEX idx_plugin_access_events_owner_version ON plugin_access_events(owner_username, package_version_id, created_at ASC);
+    `);
+    const errors = db.prepare('PRAGMA foreign_key_check').all();
+    if (errors.length) throw new Error(`Cannot migrate plugin access schema: foreign_key_check failed (${errors[0].table}, row ${errors[0].rowid}).`);
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch { /* no transaction */ }
     throw error;
   } finally {
     if (foreignKeysWereEnabled) db.pragma('foreign_keys = ON');

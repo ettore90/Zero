@@ -256,17 +256,20 @@ function getAgentPromptInheritanceState(agentDoc, { agentType = null } = {}) {
     const blockRow = ref.block ?? db.prepare('SELECT * FROM prompt_blocks WHERE id = ? LIMIT 1').get(ref.blockId);
     if (!blockRow) return null;
     const block = toBlock(blockRow);
+    const resolvedVersionId = ref.followCurrent === true ? null : (ref.pinnedBlockVersionId ?? ref.blockVersionId ?? null);
+    const version = resolvedVersionId ? toBlockVersion(db.prepare('SELECT * FROM prompt_block_versions WHERE id = ? LIMIT 1').get(resolvedVersionId)) : getBlockCurrentVersion(block.id);
     const localRef = localByBlockId.get(ref.blockId) || null;
     const localAssignment = localAssignmentByBlockId.get(ref.blockId) || null;
     const inheritedAssignment = inheritedByBlockId.get(ref.blockId) || null;
     const effectiveOrigin = ref.origin || (localRef ? 'local' : 'global');
     const effectiveInherited = effectiveOrigin !== 'local';
     const effectiveRefId = localRef?.id ?? ref.id ?? null;
-    const effectiveBlockVersionId = localRef?.pinnedBlockVersionId ?? localRef?.blockVersionId ?? ref.pinnedBlockVersionId ?? ref.blockVersionId ?? null;
+    const effectiveBlockVersionId = version?.id ?? (ref.followCurrent === true ? null : (localRef?.pinnedBlockVersionId ?? localRef?.blockVersionId ?? ref.pinnedBlockVersionId ?? ref.blockVersionId ?? null));
     const effectiveRefIdentity = {
       refId: effectiveRefId,
       blockId: ref.blockId,
       blockVersionId: effectiveBlockVersionId,
+      followCurrent: ref.followCurrent === true,
       origin: effectiveOrigin,
       inherited: effectiveInherited,
       inheritedFromGlobal: effectiveInherited ? true : false,
@@ -364,11 +367,12 @@ export function resolveEffectivePromptForAgentDocumentNoBootstrap(agentDoc, { ag
     const effectiveOrigin = ref.origin || (localRef ? 'local' : 'global');
     const effectiveInherited = effectiveOrigin !== 'local';
     const effectiveRefId = ref.id ?? null;
-    const effectiveBlockVersionId = ref.followCurrent === true ? null : (ref.pinnedBlockVersionId ?? ref.blockVersionId ?? null);
+    const effectiveBlockVersionId = version?.id ?? (ref.followCurrent === true ? null : (ref.pinnedBlockVersionId ?? ref.blockVersionId ?? null));
     const effectiveRefIdentity = {
       refId: effectiveRefId,
       blockId: ref.blockId,
       blockVersionId: effectiveBlockVersionId,
+      followCurrent: ref.followCurrent === true,
       origin: effectiveOrigin,
       inherited: effectiveInherited,
       inheritedFromGlobal: effectiveInherited ? true : false,
@@ -412,6 +416,133 @@ export function resolveEffectivePromptForAgentDocumentNoBootstrap(agentDoc, { ag
     inheritedByBlockId,
   };
 }
+function toInertAssignmentSelection(assignment) {
+  if (!assignment || typeof assignment !== 'object') return null;
+  const selection = {};
+  const metadata = assignment.metadata && typeof assignment.metadata === 'object' && !Array.isArray(assignment.metadata) ? assignment.metadata : {};
+  const toStringList = (value) => {
+    if (!Array.isArray(value)) return undefined;
+    const values = [...new Set(value.filter(item => typeof item === 'string').map(item => item.trim()).filter(Boolean))];
+    return values.length ? values : undefined;
+  };
+  const copyStringList = (source, target) => {
+    const values = toStringList(source);
+    if (values) selection[target] = values;
+  };
+
+  for (const field of ['agentTypes', 'requiredCapabilities', 'anyCapabilities', 'sessionIds', 'taskTags', 'excludeAgentTypes', 'excludeSessionIds', 'excludeTaskTags']) {
+    if (Object.prototype.hasOwnProperty.call(metadata, field)) copyStringList(metadata[field], field);
+  }
+
+  // Legacy excludes is accepted only in its unambiguous structured form.
+  const legacyExcludes = metadata.excludes;
+  if (legacyExcludes && typeof legacyExcludes === 'object' && !Array.isArray(legacyExcludes)) {
+    const legacyKeys = Object.keys(legacyExcludes);
+    const legacyMap = {
+      agentTypes: 'excludeAgentTypes',
+      sessionIds: 'excludeSessionIds',
+      taskTags: 'excludeTaskTags',
+    };
+    if (legacyKeys.length && legacyKeys.every(key => Object.prototype.hasOwnProperty.call(legacyMap, key))) {
+      for (const [legacyKey, target] of Object.entries(legacyMap)) {
+        if (Object.prototype.hasOwnProperty.call(legacyExcludes, legacyKey)) copyStringList(legacyExcludes[legacyKey], target);
+      }
+    }
+  }
+
+  if (Number.isInteger(metadata.priority) && metadata.priority >= 0) selection.priority = metadata.priority;
+  selection.forceInclude = assignment.forceInclude === true;
+  if (selection.forceInclude && Number.isInteger(assignment.forcedPosition)) selection.forcedPosition = assignment.forcedPosition;
+  return selection;
+}
+
+function resolvedPackageVersionId(item, blockVersionIdsByBlockId = new Map()) {
+  const identityVersionId = item?.effectiveRefIdentity?.blockVersionId;
+  if (identityVersionId != null && String(identityVersionId).trim()) return String(identityVersionId);
+  const knownBlockVersionId = blockVersionIdsByBlockId.get(String(item?.blockId ?? item?.id ?? ''));
+  if (knownBlockVersionId) return knownBlockVersionId;
+  const fallbackVersionId = item?.pinnedBlockVersionId ?? item?.blockVersionId ?? null;
+  return fallbackVersionId != null && String(fallbackVersionId).trim() ? String(fallbackVersionId) : null;
+}
+
+// Read-only batch enrichment for the no-bootstrap effective prompt resolution.
+export function enrichResolvedPromptWithPackageContext(resolved) {
+  const source = resolved && typeof resolved === 'object' ? resolved : {};
+  const sourceBlocks = Array.isArray(source.blocks) ? source.blocks : [];
+  const sourceRefs = Array.isArray(source.refs) ? source.refs : [];
+  const blockVersionIdsByBlockId = new Map();
+  for (const block of sourceBlocks) {
+    const versionId = block?.effectiveRefIdentity?.blockVersionId ?? block?.pinnedBlockVersionId ?? block?.blockVersionId ?? null;
+    if (versionId != null && String(versionId).trim()) blockVersionIdsByBlockId.set(String(block?.id ?? block?.blockId ?? ''), String(versionId));
+  }
+  const versionIds = [...new Set([
+    ...sourceBlocks.map(block => resolvedPackageVersionId(block, blockVersionIdsByBlockId)),
+    ...sourceRefs.map(ref => resolvedPackageVersionId(ref, blockVersionIdsByBlockId)),
+  ].filter(Boolean))];
+  const packageVersionsByBlockVersionId = new Map();
+  if (versionIds.length) {
+    const chunkSize = 500;
+    for (let offset = 0; offset < versionIds.length; offset += chunkSize) {
+      const versionIdChunk = versionIds.slice(offset, offset + chunkSize);
+      const placeholders = versionIdChunk.map(() => '?').join(', ');
+      const rows = getDb().prepare(`
+        SELECT a.prompt_block_version_id AS block_version_id,
+               pv.id AS package_version_id, pv.package_id AS package_id,
+               p.package_key AS package_key, pv.status AS version_status,
+               p.status AS package_status, pv.source_commit AS source_commit,
+               pv.source_ref AS source_ref
+        FROM prompt_package_artifacts a
+        JOIN prompt_package_versions pv ON pv.id = a.package_version_id
+        JOIN prompt_packages p ON p.id = pv.package_id
+        WHERE a.prompt_block_version_id IN (${placeholders})
+        ORDER BY a.prompt_block_version_id ASC, p.package_key ASC, pv.id ASC, pv.source_commit ASC, pv.source_ref ASC
+      `).all(...versionIdChunk);
+      for (const row of rows) {
+        const blockVersionId = String(row.block_version_id);
+        const entries = packageVersionsByBlockVersionId.get(blockVersionId) || new Map();
+        if (!entries.has(row.package_version_id)) entries.set(row.package_version_id, {
+          packageVersionId: row.package_version_id,
+          packageId: row.package_id,
+          packageKey: row.package_key,
+          versionStatus: row.version_status,
+          packageStatus: row.package_status,
+          sourceCommit: row.source_commit,
+          sourceRef: row.source_ref,
+        });
+        packageVersionsByBlockVersionId.set(blockVersionId, entries);
+      }
+    }
+  }
+  const packageContextFor = (item) => {
+    const blockVersionId = resolvedPackageVersionId(item, blockVersionIdsByBlockId);
+    const followsCurrent = item?.effectiveRefIdentity?.followCurrent === true || item?.followCurrent === true;
+    if (!blockVersionId && followsCurrent) {
+      return {
+        packageVersions: [],
+        packageVersionIds: [],
+        packageContextStatus: 'unresolved',
+        packageStatus: 'unresolved',
+      };
+    }
+    const packageVersions = [...(packageVersionsByBlockVersionId.get(blockVersionId)?.values() || [])]
+      .sort((a, b) => String(a.packageKey).localeCompare(String(b.packageKey)) || String(a.packageVersionId).localeCompare(String(b.packageVersionId)));
+    const nonActiveStatuses = packageVersions.flatMap(entry => [entry.packageStatus, entry.versionStatus]).filter(status => status !== 'active').sort();
+    return {
+      packageVersions,
+      packageVersionIds: packageVersions.map(entry => entry.packageVersionId),
+      packageContextStatus: packageVersions.length ? 'packaged' : 'local',
+      packageStatus: packageVersions.length ? (nonActiveStatuses[0] || 'active') : 'local',
+    };
+  };
+  const blocks = sourceBlocks.map(block => ({
+    ...block,
+    ...packageContextFor(block),
+    assignmentSelection: toInertAssignmentSelection(block?.effectiveRefAssignment),
+  }));
+  const refs = sourceRefs.map(ref => ({ ...ref, ...packageContextFor(ref) }));
+  return { ...source, blocks, refs };
+}
+
 export function resolveEffectivePromptForAgentDocument(agentDoc, options = {}) {
   return getAgentPromptInheritanceState(agentDoc, options);
 }

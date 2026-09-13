@@ -17,7 +17,7 @@ import { isToolAllowedForSession } from './toolAccessPolicy.js';
 import { normalizePlanForStorage, persistPlanRecord } from './planState.js';
 import { broadcastToUser } from './streamBroker.js';
 import { createSubagentAudit, appendSubagentAuditLog, finalizeSubagentAudit, serializeJson } from './subagentAuditService.js';
-import { getPromptDocumentByKeyNoBootstrap, resolveEffectivePromptForAgentDocumentNoBootstrap } from './promptStore.js';
+import { getPromptDocumentByKeyNoBootstrap, resolveEffectivePromptForAgentDocumentNoBootstrap, enrichResolvedPromptWithPackageContext } from './promptStore.js';
 import { selectPromptBlocks } from './promptBlockSelector.js';
 import { recordPromptCompositionAudit } from './promptCompositionAuditStore.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -79,11 +79,22 @@ function resolvePromptCompositionRuntime(agent) {
 
     const document = getPromptDocumentByKeyNoBootstrap(documentKey);
     if (!document) return null;
-    const resolved = resolveEffectivePromptForAgentDocumentNoBootstrap(document, { agentType: agent?.role });
+    const resolved = enrichResolvedPromptWithPackageContext(
+      resolveEffectivePromptForAgentDocumentNoBootstrap(document, { agentType: agent?.role })
+    );
     const refsByBlockId = new Map((Array.isArray(resolved?.refs) ? resolved.refs : []).map((ref) => [ref?.blockId, ref]));
+    const packageVersionIdsByBlockId = new Map();
+    const acceptedPackageStatuses = new Set(['active', 'staged', 'disabled', 'superseded']);
     const candidates = (Array.isArray(resolved?.blocks) ? resolved.blocks : []).flatMap((block) => {
       if (typeof block?.effectiveContent !== 'string' || !block.effectiveContent) return [];
       const ref = refsByBlockId.get(block.id) || {};
+      const packageVersionIds = Array.isArray(block.packageVersionIds)
+        ? [...new Set(block.packageVersionIds.filter((id) => typeof id === 'string' && id))].sort()
+        : [];
+      packageVersionIdsByBlockId.set(block.id, packageVersionIds);
+      const packageStatus = block.packageContextStatus === 'local'
+        ? undefined
+        : (acceptedPackageStatuses.has(block.packageStatus) ? block.packageStatus : 'disabled');
       return [{
         blockId: block.id,
         blockVersionId: block.effectiveRefIdentity?.blockVersionId ?? ref.pinnedBlockVersionId ?? ref.blockVersionId ?? null,
@@ -91,6 +102,10 @@ function resolvePromptCompositionRuntime(agent) {
         blockType: block.blockType ?? null,
         position: ref.position ?? 0,
         included: ref.included === true,
+        ...(Object.prototype.hasOwnProperty.call(block, 'assignmentSelection') && block.assignmentSelection !== undefined
+          ? { selection: block.assignmentSelection }
+          : {}),
+        ...(packageStatus === undefined ? {} : { packageStatus }),
       }];
     });
     const context = {};
@@ -119,10 +134,14 @@ function resolvePromptCompositionRuntime(agent) {
       code: block.code,
       estimatedChars: block.estimatedChars ?? null,
     }));
+    const selectedPackageVersionIds = [...new Set(selection.selected.flatMap((block) => (
+      packageVersionIdsByBlockId.get(block.blockId) || []
+    )))].sort();
     return {
       content,
       audit: {
         documentId: document.id,
+        ...(selectedPackageVersionIds.length === 1 ? { packageVersionId: selectedPackageVersionIds[0] } : {}),
         documentVersionId: document.currentVersionId ?? null,
         selectedItems,
         excludedItems,
@@ -1634,6 +1653,10 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
 
   const ctx = createDispatcherCtx(username);
   ctx.runAgentLoop = runAgentLoop;
+  // Execution-scoped correlation only. Plugin loaders must never infer identity from
+  // tool arguments or persist a loaded feature beyond this single agent execution.
+  ctx.sessionId = effectiveSessionId;
+  ctx.executionId = promptCompositionExecutionId;
   ctx.TOOL_NAMES = providerTools.map((t) => t.function?.name).filter(Boolean);
 
   const extractSessionBlackboardText = (session) => {
@@ -1817,6 +1840,7 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
             auditKind: 'runtime_prompt_composition',
             documentId: composition.audit.documentId,
             documentVersionId: composition.audit.documentVersionId,
+            ...(composition.audit.packageVersionId ? { packageVersionId: composition.audit.packageVersionId } : {}),
             agentId: String(agentId),
             sessionId: auditSessionId,
             executionId: promptCompositionExecutionId,

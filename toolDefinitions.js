@@ -1514,6 +1514,65 @@ export const SYSTEM_TOOLS = [
   },
   {
     type: 'function',
+    group: 'Plugin Catalog',
+    function: {
+      name: 'inspect_plugin',
+      callableBy: ['llm', 'agent'],
+      description: 'Inspect one plugin package through the server-authorized, read-only, selective, redacted, and audited catalog view. Caller identity is supplied only by server dispatch context.',
+      parameters: {
+        type: 'object',
+        properties: {
+          packageKey: { type: 'string', description: 'Required safe plugin package identifier.' },
+          versionId: { type: 'string', description: 'Optional exact package version ID. Mutually exclusive with sourceCommit.' },
+          sourceCommit: { type: 'string', description: 'Optional exact source commit selector. Mutually exclusive with versionId.' },
+          targetAgentId: { type: 'string', description: 'Optional target agent whose catalog access is inspected; defaults to the authorized caller.' },
+          features: {
+            type: 'object',
+            description: 'Optional feature selection limited to skills, bundles, and tools.',
+            properties: {
+              skills: { type: 'array', items: { type: 'string' } },
+              bundles: { type: 'array', items: { type: 'string' } },
+              tools: { type: 'array', items: { type: 'string' } },
+            },
+            additionalProperties: false,
+          },
+        },
+        required: ['packageKey'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    group: 'Plugin Catalog',
+    function: {
+      name: 'load_plugin_features',
+      callableBy: ['llm', 'agent'],
+      description: 'Load selected features from one pinned plugin package version for the calling agent. packageKey and features are required. features accepts skills, bundles, and tools arrays; provide one or more selected feature IDs to load. An empty features object is a no-op. Supply exactly one of versionId or sourceCommit to pin the package version. Loaded skill content is marked untrusted. MCP bundles and tools are inert metadata only: this tool never registers an MCP tool or transport and cannot execute MCP features.',
+      parameters: {
+        type: 'object',
+        properties: {
+          packageKey: { type: 'string', description: 'Required safe plugin package identifier.' },
+          versionId: { type: 'string', description: 'Optional exact package version ID. Mutually exclusive with sourceCommit.' },
+          sourceCommit: { type: 'string', description: 'Optional exact source commit selector. Mutually exclusive with versionId.' },
+          features: {
+            type: 'object',
+            description: 'Feature selections. skills, bundles, and tools are arrays of safe feature identifiers. Empty selections are a no-op.',
+            properties: {
+              skills: { type: 'array', items: { type: 'string' } },
+              bundles: { type: 'array', items: { type: 'string' } },
+              tools: { type: 'array', items: { type: 'string' } },
+            },
+            additionalProperties: false,
+          },
+        },
+        required: ['packageKey', 'features'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
     group: 'Jira',
     function: {
       name: 'jira_action',

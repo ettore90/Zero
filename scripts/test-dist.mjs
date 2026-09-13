@@ -32,7 +32,8 @@ if (fs.existsSync(indexPath)) {
   if (wrongAssetRefs.length === 0) ok('dist-html-no-unscoped-assets', 'HTML não referencia assets fora do base path esperado');
   else ko('dist-html-no-unscoped-assets', `HTML referencia assets fora do base path esperado: ${wrongAssetRefs.join(', ')}`);
 
-  const assetRegex = new RegExp(`${assetsPrefix.replace(/[.*+?^${}()|[\]\]/g, '\\$&')}([^"']+)`, 'g');
+  const escapedAssetsPrefix = assetsPrefix.replace(/[.*+?^${}()|[\]\\]/g, (character) => `\\${character}`);
+  const assetRegex = new RegExp(`${escapedAssetsPrefix}([^"']+)`, 'g');
   const assetMatches = [...html.matchAll(assetRegex)].map(m => m[1]);
   if (assetMatches.length > 0) ok('dist-html-asset-tags', `HTML referencia ${assetMatches.length} asset(s)`);
   else ko('dist-html-asset-tags', 'HTML não referencia assets');

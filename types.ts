@@ -41,6 +41,8 @@ export interface Agent {
   executionMode?: AgentExecutionMode;
   tags?: string[];
   allowedTools?: string[];
+  /** Existing generic MCP-bundle assignment; separate from declarative plugin access grants. */
+  mcpBundles?: string[];
   timeoutSeconds?: number;
   maxRetries?: number;
   maxTokensPerPayload?: number;
@@ -427,3 +429,139 @@ export const AGENT_COLORS = [
 export const MAX_LOG_ENTRIES = 1000;
 
 export const APP_VERSION = '1.6.0';
+
+
+// Plugin access contracts are declarative catalog metadata only. They never carry
+// skill content, executable MCP configuration, paths, URLs, or credentials.
+export type PluginFeatureKind = 'skills' | 'bundles' | 'tools';
+
+export interface PluginFeatureSelections {
+  skills: string[];
+  bundles: string[];
+  tools: string[];
+}
+
+export type NonEmptyPluginFeatureSelections =
+  | { skills: [string, ...string[]]; bundles: string[]; tools: string[] }
+  | { skills: string[]; bundles: [string, ...string[]]; tools: string[] }
+  | { skills: string[]; bundles: string[]; tools: [string, ...string[]] };
+
+export type PluginAccessScope =
+  | { packageKey: string; versionId: string; sourceCommit?: never }
+  | { packageKey: string; sourceCommit: string; versionId?: never };
+
+export type PluginAccessMode = 'direct' | 'request' | 'unavailable';
+
+export interface PluginAccessGrant {
+  id: string;
+  agentId: string;
+  packageVersionId: string;
+  mode: PluginAccessMode;
+  exclusions: PluginFeatureSelections;
+  approvedFeatures: PluginFeatureSelections;
+  actor: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface PluginAccessGrantUpsertBase {
+  scope: PluginAccessScope;
+  exclusions?: PluginFeatureSelections;
+}
+
+export type PluginAccessGrantUpsert = PluginAccessGrantUpsertBase & (
+  | { mode: 'direct'; approvedFeatures: NonEmptyPluginFeatureSelections }
+  | { mode: 'request' | 'unavailable'; approvedFeatures?: never }
+);
+
+export interface PluginAccessRequestCreate {
+  agentId: string;
+  scope: PluginAccessScope;
+  selections: NonEmptyPluginFeatureSelections;
+  reason?: string | null;
+  approvedFeatures?: never;
+}
+
+export type PluginAccessRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface PluginAccessRequest {
+  id: string;
+  agentId: string;
+  packageVersionId: string;
+  selections: PluginFeatureSelections;
+  reason: string | null;
+  status: PluginAccessRequestStatus;
+  requesterActor: string | null;
+  decisionActor: string | null;
+  decisionAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PluginAccessRequestDecision {
+  status: Exclude<PluginAccessRequestStatus, 'pending'>;
+}
+
+export type PluginAccessEventDetails = Record<string, string | boolean | number>;
+
+export interface PluginAccessEvent {
+  id: string;
+  grantId: string | null;
+  requestId: string | null;
+  packageVersionId: string;
+  event: string;
+  actor: string | null;
+  details: PluginAccessEventDetails;
+  createdAt: number;
+}
+
+export interface PluginCatalogBundle {
+  key: string;
+  tools: string[];
+  executionAvailable: false;
+}
+
+/** Approved baseline metadata; all features remain inert. */
+export interface PluginApprovedFeaturesBaseline {
+  skills: string[];
+  blocks: string[];
+  bundles: PluginCatalogBundle[];
+  tools: string[];
+}
+
+export interface PluginRequestableFeatures {
+  skills: string[];
+  bundles: string[];
+  tools: string[];
+}
+
+interface PluginCatalogEntryBase {
+  package: { packageKey: string; status: string };
+  version: { id: string; version: string; status: string };
+}
+
+export type PluginCatalogEntry =
+  | (PluginCatalogEntryBase & {
+    access: 'direct';
+    /** Redacted, inert approved baseline returned by the current catalog endpoint as `features`. */
+    features: PluginApprovedFeaturesBaseline;
+    /** Present only when supplied by a compatible server; absent responses remain redacted. */
+    requestableFeatures?: PluginRequestableFeatures;
+  })
+  | (PluginCatalogEntryBase & { access: 'request'; features?: never; requestableFeatures: PluginRequestableFeatures })
+  | (PluginCatalogEntryBase & { access: 'unavailable'; features?: never; requestableFeatures: PluginRequestableFeatures });
+
+export interface PluginAccessGrantFilters {
+  agentId?: string;
+  scope?: PluginAccessScope;
+}
+
+export interface PluginAccessRequestFilters extends PluginAccessGrantFilters {
+  status?: PluginAccessRequestStatus;
+}
+
+export type PluginAccessEventFilters =
+  | { scope?: never; requestId?: never; grantId?: never }
+  | { scope: PluginAccessScope; requestId?: never; grantId?: never }
+  | { requestId: string; scope?: never; grantId?: never }
+  | { grantId: string; scope?: never; requestId?: never };

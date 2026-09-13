@@ -4,6 +4,7 @@ import { paths } from './config/paths.js';
 import { bootstrapStorage } from './config/bootstrap.js';
 import { initDb, closeDb } from './db.js';
 import { purgeExpiredSubagentAudits } from './services/subagentAuditService.js';
+import { createPromptPackageSyncScheduler } from './services/promptPackageSyncScheduler.js';
 
 // ── 1. Ensure storage directories and JSON files exist ──────────────────────
 bootstrapStorage();
@@ -17,6 +18,24 @@ initDb(DB_PATH);
 const auditCleanup = purgeExpiredSubagentAudits();
 console.log(`[subagent_audit] startup cleanup deleted ${auditCleanup.deleted} expired rows`);
 
+let promptPackageSyncScheduler = null;
+if (env.ENABLE_PROMPT_PACKAGE_SYNC_SCHEDULER === true) {
+  try {
+    promptPackageSyncScheduler = createPromptPackageSyncScheduler();
+    promptPackageSyncScheduler.start();
+  } catch {
+    if (promptPackageSyncScheduler) {
+      try {
+        promptPackageSyncScheduler.stop();
+      } catch {
+        console.warn('[server] prompt_package_sync_scheduler_start_cleanup_failed');
+      }
+    }
+    promptPackageSyncScheduler = null;
+    console.warn('[server] prompt_package_sync_scheduler_start_failed');
+  }
+}
+
 // ── 3. Dynamic import of app — DB is guaranteed to be ready ─────────────────
 const { createApp } = await import('./app.js');
 
@@ -28,8 +47,20 @@ server.listen(env.PORT, () => {
 });
 
 // ── 4. Graceful shutdown ─────────────────────────────────────────────────────
+let shuttingDown = false;
 function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`[server] ${signal} received — shutting down gracefully`);
+  if (promptPackageSyncScheduler) {
+    try {
+      promptPackageSyncScheduler.stop();
+    } catch {
+      console.warn('[server] prompt_package_sync_scheduler_stop_failed');
+    } finally {
+      promptPackageSyncScheduler = null;
+    }
+  }
   server.close(() => {
     closeDb();
     process.exit(0);

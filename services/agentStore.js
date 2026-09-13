@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db.js';
 import { deleteAgentState, readState, getAgents, saveConfig, getRawState } from './userStateService.js';
 import { getCurrentPromptVersion, getPromptDocumentByKeyNoBootstrap } from './promptStore.js';
+import { normalizeMcpBundleIds } from './mcpBundleRegistry.js';
 
 const USERNAME_AGENT_ALLOWLIST = Object.freeze({});
 
@@ -12,6 +13,13 @@ function now() {
 
 function normalizeAgents(agents) {
   return Array.isArray(agents) ? agents : [];
+}
+
+function normalizeReplaceAgentsMcpBundles(agents) {
+  return agents.map((agent) => {
+    if (!Object.prototype.hasOwnProperty.call(agent || {}, 'mcpBundles')) return agent;
+    return { ...agent, mcpBundles: [...normalizeMcpBundleIds(agent.mcpBundles)] };
+  });
 }
 
 function stripNonCanonicalSessionFields(agent) {
@@ -176,9 +184,13 @@ export function listCanonicalVisibleAgents(username) {
 }
 
 export function upsertAgent(username, agent) {
+  const hasMcpBundles = Object.prototype.hasOwnProperty.call(agent || {}, 'mcpBundles');
+  const normalizedAgent = hasMcpBundles
+    ? { ...agent, mcpBundles: [...normalizeMcpBundleIds(agent.mcpBundles)] }
+    : agent;
   const db = getDb();
   const stmts = getStmt(db);
-  const id = String(agent?.id || randomUUID());
+  const id = String(normalizedAgent?.id || randomUUID());
   const deletedIds = new Set(getDeletedAgentIds(username));
   const allowlist = USERNAME_AGENT_ALLOWLIST[String(username)] || null;
   if (allowlist && !allowlist.has(id)) {
@@ -201,7 +213,7 @@ export function upsertAgent(username, agent) {
   const base = existing || {};
   const nextAgent = {
     ...stripNonCanonicalSessionFields(base),
-    ...stripNonCanonicalSessionFields(agent),
+    ...stripNonCanonicalSessionFields(normalizedAgent),
     id,
     username: String(username),
     updatedAt: nextUpdatedAt,
@@ -222,7 +234,7 @@ export function upsertAgent(username, agent) {
 }
 
 export function replaceAgents(username, agents, options = {}) {
-  const items = normalizeAgents(agents);
+  const items = normalizeReplaceAgentsMcpBundles(normalizeAgents(agents));
   const preserveExisting = options.preserveExisting !== false;
   const deletedIds = new Set(getDeletedAgentIds(username));
 

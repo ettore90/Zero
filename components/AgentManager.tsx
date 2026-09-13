@@ -6,10 +6,15 @@ const CANONICAL_AGENT_COLORS = ['#3b82f6', '#10b981', '#8b5cf6', '#f97316', '#ef
 const { AGENT_COLORS } = typesModule as any;
 const safeAgentColors = Array.isArray(AGENT_COLORS) && AGENT_COLORS.length > 0 ? AGENT_COLORS : CANONICAL_AGENT_COLORS;
 import { ToolsSelector } from './ToolsSelector';
+import PluginAccessPanel from './PluginAccessPanel';
 import * as localApiService from '../services/localApiService';
-const { fetchAgents, fetchAgentPromptDocument, fetchAgentPromptVersions, fetchAgentPromptBlocks, fetchPromptRefs, updatePromptRefs, updatePromptRefsBatch, fetchCompositionPreview, publishPromptComposition, rollbackAgentPrompt, createPromptBlock, createPromptBlockVersion, deletePromptBlock } = localApiService as any;
+const { fetchAgents, fetchAgentMcpBundles, fetchAgentPromptDocument, fetchAgentPromptVersions, fetchAgentPromptBlocks, fetchPromptRefs, updatePromptRefs, updatePromptRefsBatch, fetchCompositionPreview, publishPromptComposition, rollbackAgentPrompt, createPromptBlock, createPromptBlockVersion, deletePromptBlock } = localApiService as any;
 
 const normalizeTags = (value: string) => value.split(',').map(tag => tag.trim()).filter(Boolean);
+const INERT_MCP_BUNDLE_IDS = ['github-read', 'atlassian-read', 'grafana-read', 'mongodb-read'] as const;
+const normalizeMcpBundles = (value: unknown): string[] => Array.isArray(value)
+  ? [...new Set(value.filter((bundleId): bundleId is string => typeof bundleId === 'string' && (INERT_MCP_BUNDLE_IDS as readonly string[]).includes(bundleId)))]
+  : [];
 
 const formatVersionDateTime = (value: unknown) => {
   if (value === null || value === undefined || value === '') return '—';
@@ -62,7 +67,7 @@ interface AgentManagerProps {
 
 const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
-type Tab = 'general' | 'tools' | 'limits';
+type Tab = 'general' | 'tools' | 'plugins' | 'limits';
 
 const AgentManager: React.FC<AgentManagerProps> = ({
   agent, models, username, onSave, onCancel, onDelete, canDelete = true, isLoading = false, error = ''
@@ -81,6 +86,10 @@ const AgentManager: React.FC<AgentManagerProps> = ({
   const [timeoutSeconds, setTimeoutSeconds] = useState<number>(agent?.timeoutSeconds ?? 60);
   const [maxRetries, setMaxRetries]         = useState<number>(agent?.maxRetries ?? 2);
   const [allowedTools, setAllowedTools]     = useState<string[]>(agent?.allowedTools ?? []);
+  const [mcpBundles, setMcpBundles]         = useState<string[]>(() => normalizeMcpBundles(agent?.mcpBundles));
+  const [mcpBundlePreview, setMcpBundlePreview] = useState<any>(null);
+  const [mcpBundlePreviewLoading, setMcpBundlePreviewLoading] = useState(false);
+  const [mcpBundlePreviewError, setMcpBundlePreviewError] = useState('');
   const [reasoning, setReasoning]           = useState<boolean>(agent?.reasoning ?? false);
   const [canonicalPromptLoading, setCanonicalPromptLoading] = useState(false);
   const [canonicalPromptError, setCanonicalPromptError] = useState('');
@@ -120,8 +129,21 @@ const AgentManager: React.FC<AgentManagerProps> = ({
       setPromptBlocks([]);
       setCompositionPreview(null);
       setCanonicalPromptPreview('');
+      setMcpBundlePreview(null);
+      setMcpBundlePreviewError('');
+      setMcpBundlePreviewLoading(true);
       try {
-        const agents = await fetchAgents(username);
+        const [agents, mcpPreview] = await Promise.all([
+          fetchAgents(username),
+          fetchAgentMcpBundles(username, agent.id),
+        ]);
+        if (!cancelled) {
+          if (mcpPreview) {
+            setMcpBundlePreview(mcpPreview);
+          } else {
+            setMcpBundlePreviewError('MCP bundle preview is unavailable right now.');
+          }
+        }
         const fresh = agents?.find((a: Agent) => a.id === agent.id);
         if (fresh && !cancelled) {
           setName(fresh.name || '');
@@ -134,14 +156,21 @@ const AgentManager: React.FC<AgentManagerProps> = ({
           setTimeoutSeconds(fresh.timeoutSeconds ?? 60);
           setMaxRetries(fresh.maxRetries ?? 2);
           setAllowedTools(fresh.allowedTools ?? []);
+          setMcpBundles(normalizeMcpBundles(fresh.mcpBundles));
           setReasoning(fresh.reasoning ?? false);
         }
 
         await reloadCanonicalPrompt(agent.id);
       } catch (e: any) {
-        if (!cancelled) setCanonicalPromptError(e?.message || 'Failed to load canonical prompt');
+        if (!cancelled) {
+          setCanonicalPromptError(e?.message || 'Failed to load canonical prompt');
+          setMcpBundlePreviewError('MCP bundle preview is unavailable right now.');
+        }
       } finally {
-        if (!cancelled) setCanonicalPromptLoading(false);
+        if (!cancelled) {
+          setCanonicalPromptLoading(false);
+          setMcpBundlePreviewLoading(false);
+        }
       }
     };
     load();
@@ -558,6 +587,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
       tags: normalizeTags(tagsInput),
       isMaster: role === 'master',
       allowedTools,
+      mcpBundles: normalizeMcpBundles(mcpBundles),
       reasoning,
       timeoutSeconds: Math.max(10, timeoutSeconds),
       maxRetries: Math.max(0, maxRetries),
@@ -571,6 +601,7 @@ const AgentManager: React.FC<AgentManagerProps> = ({
   const tabs: { id: Tab; label: string }[] = [
     { id: 'general', label: 'General' },
     { id: 'tools',   label: `Tools${allowedTools.length > 0 ? ` (${allowedTools.length})` : ' (all)'}` },
+    { id: 'plugins', label: 'Plugins' },
     { id: 'limits',  label: 'Limits' },
   ];
 
@@ -1050,7 +1081,99 @@ const AgentManager: React.FC<AgentManagerProps> = ({
                   Select which tools this agent can use. Leave all enabled to grant full access.
                 </p>
                 <ToolsSelector allowedTools={allowedTools} onChange={setAllowedTools} />
+                <div className="mt-5 border-t border-slate-200 dark:border-slate-700 pt-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-bold text-slate-300">MCP Bundles</span>
+                      <p className="mt-1 text-[10px] text-slate-500">Editable assignments for bundles that expose only read-only logical contracts. These connectors are registered but inert: no remote, OAuth, stdio, or tool execution is enabled.</p>
+                    </div>
+                    <span className="shrink-0 rounded bg-slate-800 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">Inert</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                    {([
+                      ['github-read', 'GitHub'],
+                      ['atlassian-read', 'Atlassian'],
+                      ['grafana-read', 'Grafana'],
+                      ['mongodb-read', 'MongoDB'],
+                    ] as const).map(([bundleId, label]) => (
+                      <label key={bundleId} className="flex cursor-pointer items-center gap-2 rounded border border-slate-200 px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/50">
+                        <input
+                          type="checkbox"
+                          checked={mcpBundles.includes(bundleId)}
+                          onChange={() => setMcpBundles((current) => current.includes(bundleId)
+                            ? current.filter((id) => id !== bundleId)
+                            : [...current, bundleId])}
+                          className="h-3 w-3 accent-indigo-500"
+                        />
+                        <span>{label}</span>
+                        <span className="ml-auto text-[9px] font-mono text-slate-500">read-only</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/30">
+                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">Assigned MCP bundle preview</div>
+                    <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Read-only metadata only. All bundles and logical tool contracts remain inert; no execution, connection, or health status is provided.</p>
+                    {!agent?.id ? (
+                      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Preview unavailable until this agent is saved.</p>
+                    ) : mcpBundlePreviewLoading ? (
+                      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Loading assigned bundle metadata…</p>
+                    ) : mcpBundlePreviewError ? (
+                      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">{mcpBundlePreviewError}</p>
+                    ) : mcpBundlePreview ? (
+                      <div className="mt-3 space-y-3 text-xs text-slate-600 dark:text-slate-300">
+                        <div className="space-y-1">
+                          {(mcpBundlePreview.invalidAssignment === true || mcpBundlePreview.allowedToolsPolicy?.invalidAssignment === true) ? (
+                            <div className="font-medium text-amber-700 dark:text-amber-300">Assignment invalid/unavailable.</div>
+                          ) : null}
+                          <div>Reason: {mcpBundlePreview.reason ?? '—'}</div>
+                          <div>Allowed-tools policy setting: {mcpBundlePreview.allowedToolsPolicy?.setting ?? '—'}</div>
+                          <div>Assignment policy eligible: {mcpBundlePreview.eligible === true ? 'yes' : 'no'} <span className="text-[10px] text-slate-500 dark:text-slate-400">(not connector availability)</span></div>
+                          <div>Execution: unavailable (inert)</div>
+                        </div>
+                        {Array.isArray(mcpBundlePreview.bundles) && mcpBundlePreview.bundles.length > 0 ? (
+                          <div className="space-y-1.5">
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Assigned bundles</div>
+                            {mcpBundlePreview.bundles.map((bundle: any) => {
+                              const capabilities = Array.isArray(bundle?.capabilities)
+                                ? bundle.capabilities.filter((capability: unknown): capability is string => typeof capability === 'string').join(', ') || '—'
+                                : '—';
+                              const source = bundle?.transport === 'remote'
+                                ? 'remote MCP'
+                                : bundle?.transport === 'stdio'
+                                  ? 'isolated stdio runner'
+                                  : '—';
+                              return <div key={bundle?.id ?? bundle?.label ?? 'bundle'} className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-dark-900">
+                                <div>{bundle?.label ?? '—'} · ID: {bundle?.id ?? '—'}</div>
+                                <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Transport/source: {source} · Risk: {bundle?.risk ?? '—'} · Mode: {bundle?.mode ?? '—'}</div>
+                                <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Capabilities: {capabilities}</div>
+                              </div>;
+                            })}
+                          </div>
+                        ) : <p>No assigned bundles.</p>}
+                        {Array.isArray(mcpBundlePreview.toolContracts) && mcpBundlePreview.toolContracts.length > 0 ? (
+                          <div className="space-y-1.5">
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Logical tool contracts</div>
+                            {mcpBundlePreview.toolContracts.map((contract: any) => <div key={`${contract.bundleId ?? ''}-${contract.name ?? ''}`} className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-dark-900">{contract.label ?? '—'} · Name: {contract.name ?? '—'} · Mode: {contract.mode ?? '—'} · Execution: unavailable (inert)</div>)}
+                          </div>
+                        ) : <p>No logical tool contracts.</p>}
+                        <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-dark-900 dark:text-slate-400">
+                          <div className="font-semibold uppercase tracking-wide">Limitations</div>
+                          <div className="mt-1">Health: not reported</div>
+                          <div>Approval state: not reported</div>
+                          <div>Assignment audit: not available</div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
+            )}
+
+            {/* Tab: Plugins — declarative grants are intentionally separate from generic tools/MCP assignments. */}
+            {tab === 'plugins' && (
+              agent?.id
+                ? <PluginAccessPanel agentId={agent.id} />
+                : <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">Save the agent before configuring plugin access.</div>
             )}
 
             {/* Tab: Limits */}

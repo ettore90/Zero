@@ -57,4 +57,6 @@ export const env = {
   DEBUG_LLM: getEnv('DEBUG_LLM') === 'true',
   DEBUG_CONTEXT: getEnv('DEBUG_CONTEXT') === 'true',
   DEBUG_SESSION: getEnv('DEBUG_SESSION') === 'true',
+  ENABLE_PROMPT_PACKAGE_SYNC_SCHEDULER:
+    getEnv('ENABLE_PROMPT_PACKAGE_SYNC_SCHEDULER') === 'true',
 };

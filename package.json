@@ -11,6 +11,7 @@
     "start:server": "node server.js",
     "test:dist": "node scripts/test-dist.mjs",
     "test:runtime": "node scripts/test-runtime-smoke.mjs",
+    "test:plugin-flow": "node scripts/test-plugin-flow.mjs",
     "test:logs": "node scripts/test-container-logs.mjs",
     "test:image-dist": "node scripts/test-image-dist.mjs",
     "test:baseline": "npm run test:dist && npm run test:logs && npm run test:runtime",

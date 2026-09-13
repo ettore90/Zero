@@ -130,8 +130,38 @@ export async function runApiSmoke() {
     throw new Error(`Model gpt-5.4-mini-qa is not present in /api/state/ettore response; extracted=[${modelNames.join(', ')}]`);
   }
 
+  const agentsUrl = `${baseUrl}/api/agents?username=${encodeURIComponent(username)}`;
+  const agentsResponse = await httpJson(agentsUrl, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const agentsStatus = agentsResponse?.status;
+  const agentsJson = agentsResponse?.json;
+  const agents = Array.isArray(agentsJson)
+    ? agentsJson
+    : (Array.isArray(agentsJson?.agents) ? agentsJson.agents : []);
+  const hasTerminalTool = (agent) => Array.isArray(agent?.allowedTools)
+    && agent.allowedTools.includes('run_terminal_command');
+  const terminalEligibleAgents = agents.filter(hasTerminalTool);
+  const selectedAgent = terminalEligibleAgents.find((agent) => String(agent?.id) === 'default')
+    || terminalEligibleAgents.find((agent) => agent?.isMaster === true)
+    || terminalEligibleAgents[0]
+    || null;
+
+  report.add(`agentsUrl=${agentsUrl}`);
+  report.add(`agentsStatus=${agentsStatus}`);
+  report.add(`agentsCount=${agents.length}`);
+  report.add(`chatAgentId=${selectedAgent?.id || 'missing'}`);
+
+  if (agentsStatus !== 200) {
+    throw new Error(`Expected agents status 200, received ${agentsStatus}`);
+  }
+  if (!selectedAgent?.id) {
+    throw new Error('No agent with run_terminal_command is available for the authenticated smoke user');
+  }
+
   const chatUrl = `${baseUrl}/api/chat`;
-  const agentId = 'mpkgkwbbynk8x18mqcg';
+  const agentId = String(selectedAgent.id);
   const requestedModels = ['gpt-5.4-LAB', 'gpt-5.4-mini-qa'];
   const modelSmoke = [];
 

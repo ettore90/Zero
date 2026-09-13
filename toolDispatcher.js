@@ -24,6 +24,8 @@ import { broadcastToUser } from './services/streamBroker.js';
 import { pendingApprovals } from './services/runtime.js';
 import { appendCommentToPlanItem, broadcastPlanUpdate, findLatestInProgressPlanForAgent, markPlanItemCompleted, normalizePlanForStorage } from './services/planState.js';
 import { areSessionNotesEnabled } from './services/toolAccessPolicy.js';
+import { loadPluginFeaturesForAgent } from './services/pluginFeatureLoader.js';
+import { inspectPluginForAuthorizedCaller } from './services/pluginCatalog.js';
 
 const ISOLATED_SUBAGENT_MAX_ITERATIONS = 20;
 const ISOLATED_SUBAGENT_TOOL_HEAVY_DEFAULT_ITERATIONS = 20;
@@ -521,7 +523,9 @@ function getToolTimeoutMs(ctx = {}) {
 function buildToolTrustMetadata(toolName, output) {
     const normalized = String(toolName || '').trim();
     const trustedSensitiveTools = new Set(['get_secret']);
-    const untrustedTools = new Set(['make_http_request']);
+    // Plugin skill bodies are imported external artifacts. Even a direct feature
+    // grant authorizes loading, not treating their contents as trusted instructions.
+    const untrustedTools = new Set(['make_http_request', 'load_plugin_features']);
     const semiTrustedTools = new Set([
         'read_file',
         'recall_memory',
@@ -604,6 +608,65 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
     // =========================================================================
 
     const isNonEmptyObject = (value) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
+
+    // Identity is exclusively supplied by server dispatch parameters. The catalog
+    // service authorizes, redacts, and audits this read-only inspection.
+    if (toolName === 'inspect_plugin') {
+        const input = args && typeof args === 'object' && !Array.isArray(args) ? args : null;
+        if (!input) return { error: 'inspect_plugin arguments must be an object' };
+        const allowed = new Set(['packageKey', 'versionId', 'sourceCommit', 'targetAgentId', 'features']);
+        for (const key of Object.keys(input)) {
+            if (!allowed.has(key)) return { error: `Unsupported inspect_plugin field: ${key}` };
+        }
+        if (typeof input.packageKey !== 'string' || !input.packageKey.trim()) {
+            return { error: 'Missing required parameter: packageKey' };
+        }
+        try {
+            const inspectionInput = {
+                packageKey: input.packageKey,
+                callerAgentId: String(agentId || ''),
+                username: String(username || ''),
+            };
+            for (const key of ['versionId', 'sourceCommit', 'targetAgentId', 'features']) {
+                if (input[key] !== undefined) inspectionInput[key] = input[key];
+            }
+            return inspectPluginForAuthorizedCaller(inspectionInput);
+        } catch (error) {
+            return { error: error.message };
+        }
+    }
+
+    // Identity is exclusively supplied by server dispatch parameters. This branch only
+    // returns loader output; it never registers an MCP tool or transport dynamically.
+    if (toolName === 'load_plugin_features') {
+        const input = args && typeof args === 'object' && !Array.isArray(args) ? args : null;
+        if (!input) return { error: 'load_plugin_features arguments must be an object' };
+        const allowed = new Set(['packageKey', 'versionId', 'sourceCommit', 'features']);
+        for (const key of Object.keys(input)) {
+            if (!allowed.has(key)) return { error: `Unsupported load_plugin_features field: ${key}` };
+        }
+        if (typeof input.packageKey !== 'string' || !input.packageKey.trim()) {
+            return { error: 'Missing required parameter: packageKey' };
+        }
+        if (!Object.prototype.hasOwnProperty.call(input, 'features')) {
+            return { error: 'Missing required parameter: features' };
+        }
+        try {
+            const loaderInput = {
+                agentId: String(agentId || ''),
+                username: String(username || ''),
+                packageKey: input.packageKey,
+                selections: input.features,
+            };
+            if (input.versionId !== undefined) loaderInput.versionId = input.versionId;
+            if (input.sourceCommit !== undefined) loaderInput.sourceCommit = input.sourceCommit;
+            if (ctx?.sessionId !== undefined && ctx.sessionId !== null) loaderInput.sessionId = ctx.sessionId;
+            if (ctx?.executionId !== undefined && ctx.executionId !== null) loaderInput.executionId = ctx.executionId;
+            return loadPluginFeaturesForAgent(loaderInput);
+        } catch (error) {
+            return { error: error.message };
+        }
+    }
 
     if (toolName === 'run_terminal_command') {
         const { command, cwd: argCwd, env = {}, timeout } = args;

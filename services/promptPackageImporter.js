@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { normalizePromptPackageManifest } from './promptPackageManifest.js';
+import { assertPromptPackageSourcePinMatches, normalizePromptPackageSourceContext, normalizePromptPackageSourcePin } from './promptPackageSourcePolicy.js';
 
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const fail = (message) => { throw new Error(`Invalid prompt package import: ${message}`); };
@@ -29,6 +31,7 @@ function content(value, field) {
 }
 const hash = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 const isSkill = (value) => value.split('/').at(-1) === 'SKILL.md';
+const MAX_FOLDED_DESCRIPTION_LENGTH = 8192;
 
 function derivedKey(value, suffix, root = false) {
   const source = root ? 'skill' : value;
@@ -43,21 +46,26 @@ function frontmatter(value, sourcePath) {
   if (end < 0) fail(`skill ${sourcePath} frontmatter is not closed`);
   const metadata = {};
   for (let i = 1; i < end; i += 1) {
-    const match = /^(name|description):[ \t]+(.+)$/.exec(lines[i]);
-    if (!match) fail(`skill ${sourcePath} has malformed frontmatter`);
-    const [, key, raw] = match;
-    if (own(metadata, key)) fail(`skill ${sourcePath} has duplicate ${key} frontmatter`);
-    const trimmed = raw.trim();
-    let parsed = trimmed;
-    if (trimmed.startsWith('"') || trimmed.startsWith("'")) {
-      const quote = trimmed[0];
-      if (trimmed.length < 2 || !trimmed.endsWith(quote) || trimmed.slice(1, -1).includes(quote)) fail(`skill ${sourcePath} has invalid quoted ${key} frontmatter`);
-      parsed = trimmed.slice(1, -1).trim();
-    } else if (/[#:{}\[\],&*!|>@`]/.test(trimmed) || trimmed.includes('"') || trimmed.includes("'")) {
-      fail(`skill ${sourcePath} has non-plain ${key} frontmatter`);
+    const match = /^(name|description|disallowed-tools):[ \t]*(.*)$/.exec(lines[i]);
+    if (!match || own(metadata, match[1])) fail(`skill ${sourcePath} has malformed frontmatter`);
+    const [, key, rawValue] = match;
+    if (key === 'description' && rawValue.trim() === '>') {
+      const folded = [];
+      while (i + 1 < end && /^[ \t]+\S/.test(lines[i + 1])) folded.push(lines[++i].trim());
+      const normalized = folded.join(' ');
+      if (!folded.length || normalized.length > MAX_FOLDED_DESCRIPTION_LENGTH || /[#:{}\[\],&*!|>@`]/.test(normalized) || normalized.includes('\"') || normalized.includes("'")) fail(`skill ${sourcePath} has unsafe folded ${key} frontmatter`);
+      metadata[key] = normalized;
+      continue;
     }
-    if (!parsed) fail(`skill ${sourcePath} has empty ${key} frontmatter`);
-    metadata[key] = parsed;
+    const trimmed = rawValue.trim();
+    if (!trimmed) fail(`skill ${sourcePath} has empty ${key} frontmatter`);
+    if (key === 'disallowed-tools') {
+      if (trimmed.length > 4096 || trimmed.split(',').some((item) => !/^[A-Za-z0-9_.-]+$/.test(item.trim()))) fail(`skill ${sourcePath} has invalid ${key} frontmatter`);
+      metadata[key] = trimmed;
+    } else {
+      if (/[#:{}\[\],&*!|>@`]/.test(trimmed) || trimmed.includes('"') || trimmed.includes("'")) fail(`skill ${sourcePath} has non-plain ${key} frontmatter`);
+      metadata[key] = trimmed;
+    }
   }
   if (!own(metadata, 'name') || !own(metadata, 'description')) fail(`skill ${sourcePath} frontmatter requires name and description`);
   if (!lines.slice(end + 1).join('\n').trim()) fail(`skill ${sourcePath} must have a non-empty Markdown body`);
@@ -70,13 +78,37 @@ export function buildPromptPackageImport(input) {
   const packageData = { packageKey: string(input.package.packageKey, 'package.packageKey'), source: string(input.package.source, 'package.source') };
   if (own(input.package, 'repository')) packageData.repository = string(input.package.repository, 'package.repository', false);
   if (own(input.package, 'metadata')) packageData.metadata = cloneObject(input.package.metadata, 'package.metadata');
+  const pinned = own(input, 'sourcePin');
   let manifest = {};
-  if (own(input.version, 'manifest')) {
+  if (pinned) {
+    if (!own(input.version, 'manifest')) fail('version.manifest is required');
+  } else if (own(input.version, 'manifest')) {
     if (isObject(input.version.manifest) && own(input.version.manifest, 'importedArtifacts')) fail('version.manifest.importedArtifacts is reserved');
     manifest = cloneObject(input.version.manifest, 'version.manifest');
   }
   const versionData = { version: string(input.version.version, 'version.version'), sourceCommit: string(input.version.sourceCommit, 'version.sourceCommit') };
   if (own(input.version, 'sourceRef')) versionData.sourceRef = string(input.version.sourceRef, 'version.sourceRef', false);
+  let sourceContext;
+  if (pinned) {
+    const sourcePin = normalizePromptPackageSourcePin(input.sourcePin);
+    const rawSourceContext = { repository: packageData.repository, ref: versionData.sourceRef, commit: versionData.sourceCommit };
+    sourceContext = normalizePromptPackageSourceContext(rawSourceContext);
+    assertPromptPackageSourcePinMatches(sourcePin, sourceContext);
+    packageData.repository = sourceContext.repository;
+    versionData.sourceRef = sourceContext.ref;
+    versionData.sourceCommit = sourceContext.commit;
+    const manifestRawSource = isObject(input.version.manifest) ? input.version.manifest.source : undefined;
+    const manifestRawSourceContext = normalizePromptPackageSourceContext(manifestRawSource, 'version.manifest.source');
+    assertPromptPackageSourcePinMatches(sourcePin, manifestRawSourceContext);
+    const manifestForNormalization = cloneObject(input.version.manifest, 'version.manifest');
+    manifestForNormalization.source = {
+      ...manifestForNormalization.source,
+      repository: manifestRawSourceContext.repository,
+      commit: manifestRawSourceContext.commit,
+    };
+    manifest = normalizePromptPackageManifest(manifestForNormalization, { source: manifestRawSourceContext });
+    assertPromptPackageSourcePinMatches(sourcePin, manifest.source);
+  }
 
   const files = input.files.map((file, index) => {
     if (!isObject(file)) fail(`files[${index}] must be an object`);
@@ -118,6 +150,19 @@ export function buildPromptPackageImport(input) {
   for (const artifact of artifacts) {
     if (paths.has(artifact.sourcePath) || keys.has(artifact.artifactKey)) fail(`duplicate artifact sourcePath or artifactKey: ${artifact.sourcePath}`);
     paths.add(artifact.sourcePath); keys.add(artifact.artifactKey);
+  }
+  if (pinned) {
+    const declaredSkillPaths = new Set(manifest.skills.map((skill) => skill.path));
+    const skillArtifactPaths = new Set(artifacts.filter((artifact) => artifact.type === 'skill').map((artifact) => artifact.sourcePath));
+    for (const skillPath of declaredSkillPaths) {
+      if (!skillArtifactPaths.has(skillPath)) fail(`manifest skill path must match a skill artifact: ${skillPath}`);
+    }
+    for (const skillPath of skillArtifactPaths) {
+      if (!declaredSkillPaths.has(skillPath)) fail(`skill artifact must be declared in version.manifest.skills: ${skillPath}`);
+    }
+    versionData.manifest = manifest;
+    versionData.validation = { valid: true, errors: [] };
+    return { package: packageData, version: versionData, artifacts };
   }
   const importedArtifacts = artifacts.map(({ type, artifactKey, sourcePath, contentHash, metadata, content: normalizedContent }) => ({ type, artifactKey, sourcePath, contentHash, metadata, content: normalizedContent }));
   versionData.manifest = { ...manifest, importedArtifacts };

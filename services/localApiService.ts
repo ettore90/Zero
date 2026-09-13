@@ -5,6 +5,7 @@
 // =============================================================================
 
 import { APP_BASE_PATH, AUTH_TOKEN_STORAGE_KEY, LEGACY_AUTH_TOKEN_STORAGE_KEYS } from '../constants';
+import type { PluginAccessEvent, PluginAccessEventFilters, PluginAccessGrant, PluginAccessGrantUpsert, PluginAccessRequest, PluginAccessRequestCreate, PluginAccessRequestDecision, PluginAccessRequestFilters, PluginCatalogEntry } from '../types';
 
 const LOCAL_BASE = APP_BASE_PATH;
 
@@ -97,6 +98,279 @@ export async function localDelete<T = any>(path: string, body: object): Promise<
 
 // Helpers de domínio — buscam dados frescos do servidor
 
+export interface PromptPackageFilters {
+    status?: string;
+    source?: string;
+    repository?: string;
+}
+
+async function localGetRequired<T = any>(path: string): Promise<T> {
+    const res = await fetch(`${LOCAL_BASE}${path}`, {
+        headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
+    return res.json();
+}
+
+export async function listPromptPackages<T = any>(filters?: PromptPackageFilters): Promise<T> {
+    const query = new URLSearchParams();
+    (['status', 'source', 'repository'] as const).forEach((key) => {
+        const value = filters?.[key];
+        if (value !== undefined && value.trim()) query.set(key, value);
+    });
+    const search = query.toString();
+    return localGetRequired<T>(`/api/settings/prompt-packages${search ? `?${search}` : ''}`);
+}
+
+export async function getPromptPackageDetail<T = any>(packageKey: string): Promise<T> {
+    return localGetRequired<T>(`/api/settings/prompt-packages/${encodeURIComponent(packageKey)}`);
+}
+
+export async function importPromptPackage<T = any>(payload: object): Promise<T> {
+    return localPost<T>('/api/settings/prompt-packages/import', payload);
+}
+
+export interface ClaudePluginImportCandidate {
+    pluginRoot: string;
+    manifest: {
+        source: PinnedGithubPromptSourcePin & { contentHash: string };
+        skills: Array<{ key: string; path: string }>;
+        mcpBundles: [];
+        metadata?: { claudePlugin?: { name?: string; version?: string; root?: string }; mcpInventory?: { serverKeys?: string[] } };
+    };
+}
+export interface ClaudePluginPreviewRequest { sourcePin: PinnedGithubPromptSourcePin; pluginRoot?: string; }
+export interface ClaudePluginPreviewResponse { sourcePin: PinnedGithubPromptSourcePin; candidates: ClaudePluginImportCandidate[]; }
+export interface ClaudePluginImportRequest extends ClaudePluginPreviewRequest {
+    pluginRoot: string;
+    package: { packageKey: string; metadata: Record<string, never> };
+    version: { version: string };
+    documentKey: string;
+    artifactMappings: Array<{ artifactKey: string; blockKey: string; blockType: 'text'; included: boolean; position: number; metadata: Record<string, never> }>;
+}
+export async function previewClaudePluginImport(request: ClaudePluginPreviewRequest): Promise<ClaudePluginPreviewResponse> {
+    return localPost<ClaudePluginPreviewResponse>('/api/settings/prompt-packages/claude-plugin/preview', request);
+}
+export async function importClaudePluginFromPreview(request: ClaudePluginImportRequest): Promise<{ changed: boolean }> {
+    return localPost<{ changed: boolean }>('/api/settings/prompt-packages/claude-plugin/import', request);
+}
+
+export async function stagePromptPackage<T = any>(payload: object): Promise<T> {
+    return localPost<T>('/api/settings/prompt-packages/stage', payload);
+}
+
+export async function activatePromptPackage<T = any>(packageKey: string, payload: object): Promise<T> {
+    return localPost<T>(`/api/settings/prompt-packages/${encodeURIComponent(packageKey)}/activate`, payload);
+}
+
+export async function rollbackPromptPackage<T = any>(packageKey: string, payload: object): Promise<T> {
+    return localPost<T>(`/api/settings/prompt-packages/${encodeURIComponent(packageKey)}/rollback`, payload);
+}
+
+export async function deactivatePromptPackage<T = any>(packageKey: string, payload: object): Promise<T> {
+    return localPost<T>(`/api/settings/prompt-packages/${encodeURIComponent(packageKey)}/deactivate`, payload);
+}
+
+export interface PinnedGithubPromptSourcePin {
+    provider: 'github';
+    repository: string;
+    ref: string;
+    commit: string;
+}
+
+export type GithubPrivateAccessRequestStatus = 'pending' | 'approved' | 'rejected' | 'revoked';
+
+export interface GithubPrivateAccessRequest {
+    id: string;
+    ownerUsername: string;
+    sourcePin: PinnedGithubPromptSourcePin;
+    purpose: 'read_only';
+    status: GithubPrivateAccessRequestStatus;
+    requestedBy: string | null;
+    decidedBy: string | null;
+    requestedAt: number;
+    decidedAt: number | null;
+    expiresAt: number | null;
+    revokedBy: string | null;
+    revokedAt: number | null;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface GithubPrivateAccessEvent {
+    id: string;
+    requestId: string;
+    ownerUsername: string;
+    sourcePin: PinnedGithubPromptSourcePin;
+    purpose: 'read_only';
+    event: 'requested' | 'approved' | 'rejected' | 'revoked';
+    actor: string | null;
+    occurredAt: number;
+}
+
+export async function createGithubPrivateAccessRequest(sourcePin: PinnedGithubPromptSourcePin): Promise<{ request: GithubPrivateAccessRequest }> {
+    return localPost('/api/settings/github-private-access-requests', { sourcePin, purpose: 'read_only' });
+}
+
+export async function listGithubPrivateAccessRequests(): Promise<{ requests: GithubPrivateAccessRequest[] }> {
+    return localGetRequired('/api/settings/github-private-access-requests');
+}
+
+export async function decideGithubPrivateAccessRequest(requestId: string, status: 'approved' | 'rejected', expiresAt?: number): Promise<{ request: GithubPrivateAccessRequest }> {
+    return localPost(`/api/settings/github-private-access-requests/${encodeURIComponent(requestId)}/decision`, { status, ...(status === 'approved' ? { expiresAt } : {}) });
+}
+
+export async function revokeGithubPrivateAccessRequest(requestId: string): Promise<{ request: GithubPrivateAccessRequest }> {
+    return localPost(`/api/settings/github-private-access-requests/${encodeURIComponent(requestId)}/revoke`, {});
+}
+
+export async function listGithubPrivateAccessEvents(requestId?: string): Promise<{ events: GithubPrivateAccessEvent[] }> {
+    return localGetRequired(`/api/settings/github-private-access-requests/events${requestId ? `?requestId=${encodeURIComponent(requestId)}` : ''}`);
+}
+
+export interface PinnedGithubPromptDescriptor {
+    schemaVersion: 1;
+    sourcePin: PinnedGithubPromptSourcePin;
+    manifestPath: string;
+    artifactPaths: string[];
+}
+
+export interface PromptPackageSyncSource {
+    sourceKey: string;
+    provider: string;
+    repository: string;
+    sourceRef: string;
+    pinnedCommit: string;
+    enabled: boolean;
+    lastSeenCommit: string | null;
+    lastStagedCommit: string | null;
+    lastSyncAt: number | null;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface UpsertPromptPackageSyncSourceRequest {
+    sourcePin: PinnedGithubPromptSourcePin;
+    enabled?: boolean;
+    metadata?: Record<string, unknown>;
+}
+
+export interface PromptPackageManualSyncRequest {
+    descriptor: PinnedGithubPromptDescriptor;
+    package: Record<string, unknown>;
+    version: Record<string, unknown>;
+    documentKey: string;
+    artifactMappings: Record<string, unknown>[];
+    timeoutMs?: number;
+    references?: Array<{ sourcePath: string; artifactKey?: string }>;
+    details?: Record<string, unknown>;
+}
+
+export interface PromptPackageSyncJob {
+    sourceKey: string;
+    enabled: boolean;
+    intervalSeconds: number;
+    descriptor: PinnedGithubPromptDescriptor;
+    package: Record<string, unknown>;
+    version: Record<string, unknown>;
+    documentKey: string;
+    artifactMappings: Record<string, unknown>[];
+    references: Array<{ sourcePath: string; artifactKey?: string }>;
+    details: Record<string, unknown>;
+    createdBy: string | null;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface UpsertPromptPackageSyncJobRequest {
+    enabled?: boolean;
+    intervalSeconds?: number;
+    descriptor: PinnedGithubPromptDescriptor;
+    package: Record<string, unknown>;
+    version: Record<string, unknown>;
+    documentKey: string;
+    artifactMappings: Record<string, unknown>[];
+    references?: Array<{ sourcePath: string; artifactKey?: string }>;
+    details?: Record<string, unknown>;
+}
+
+export interface PromptPackageManualSyncResponse {
+    materialized: {
+        sourcePin: PinnedGithubPromptSourcePin;
+        package: Record<string, unknown>;
+        version: Record<string, unknown>;
+        files: Array<{ path: string; content: string }>;
+        references: Array<{ sourcePath: string; artifactKey?: string }>;
+    };
+    staged: {
+        package: Record<string, unknown>;
+        version: Record<string, unknown>;
+        artifacts: Record<string, unknown>[];
+        blocks: Record<string, unknown>[];
+        refs: Record<string, unknown>[];
+        event: Record<string, unknown>;
+        changed: boolean;
+    };
+    checkpoint: {
+        sourceKey: string;
+        lastSeenCommit: string | null;
+        lastStagedCommit: string | null;
+        lastSyncAt: number | null;
+    };
+}
+
+export async function listPromptPackageSyncSources(): Promise<{ sources: PromptPackageSyncSource[] }> {
+    return localGetRequired<{ sources: PromptPackageSyncSource[] }>('/api/settings/prompt-package-sync-sources');
+}
+
+export async function upsertPromptPackageSyncSource(request: UpsertPromptPackageSyncSourceRequest): Promise<{ source: PromptPackageSyncSource }> {
+    const body: UpsertPromptPackageSyncSourceRequest = { sourcePin: request.sourcePin };
+    if (request.enabled !== undefined) body.enabled = request.enabled;
+    if (request.metadata !== undefined) body.metadata = request.metadata;
+    return localPut<{ source: PromptPackageSyncSource }>('/api/settings/prompt-package-sync-sources', body);
+}
+
+export async function syncPinnedGithubPromptPackageManually(request: PromptPackageManualSyncRequest): Promise<PromptPackageManualSyncResponse> {
+    const body: PromptPackageManualSyncRequest = {
+        descriptor: request.descriptor,
+        package: request.package,
+        version: request.version,
+        documentKey: request.documentKey,
+        artifactMappings: request.artifactMappings,
+    };
+    if (request.timeoutMs !== undefined) body.timeoutMs = request.timeoutMs;
+    if (request.references !== undefined) body.references = request.references;
+    if (request.details !== undefined) body.details = request.details;
+    return localPost<PromptPackageManualSyncResponse>('/api/settings/prompt-package-sync/manual', body);
+}
+
+export async function listPromptPackageSyncJobs(): Promise<{ jobs: PromptPackageSyncJob[] }> {
+    return localGetRequired<{ jobs: PromptPackageSyncJob[] }>('/api/settings/prompt-package-sync-jobs');
+}
+
+export async function upsertPromptPackageSyncJob(sourceKey: string, request: UpsertPromptPackageSyncJobRequest): Promise<{ job: PromptPackageSyncJob }> {
+    const body: UpsertPromptPackageSyncJobRequest = {
+        descriptor: request.descriptor,
+        package: request.package,
+        version: request.version,
+        documentKey: request.documentKey,
+        artifactMappings: request.artifactMappings,
+    };
+    if (request.enabled !== undefined) body.enabled = request.enabled;
+    if (request.intervalSeconds !== undefined) body.intervalSeconds = request.intervalSeconds;
+    if (request.references !== undefined) body.references = request.references;
+    if (request.details !== undefined) body.details = request.details;
+    return localPut<{ job: PromptPackageSyncJob }>(`/api/settings/prompt-package-sync-jobs/${encodeURIComponent(sourceKey)}`, body);
+}
+
+export async function deletePromptPackageSyncJob(sourceKey: string): Promise<void> {
+    const res = await fetch(`${LOCAL_BASE}/api/settings/prompt-package-sync-jobs/${encodeURIComponent(sourceKey)}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error(`DELETE prompt package sync job failed: ${res.status}`);
+}
+
 export async function fetchConfig(username: string): Promise<any | null> {
     return localGet('/api/config', username);
 }
@@ -128,6 +402,55 @@ export async function updateAgentOnServer<T = any>(username: string, id: string,
 
 export async function deleteAgentOnServer<T = any>(username: string, id: string): Promise<T> {
     return localDelete<T>(`/api/agents/${encodeURIComponent(id)}`, { username });
+}
+
+export async function fetchAgentMcpBundles(username: string, id: string): Promise<any | null> {
+    return localGet(`/api/agents/${encodeURIComponent(id)}/mcp-bundles`, username);
+}
+
+function pluginScopeQuery(scope: { packageKey: string; versionId?: string; sourceCommit?: string }): string {
+    const query = new URLSearchParams({ packageKey: scope.packageKey });
+    if ('versionId' in scope && scope.versionId) query.set('versionId', scope.versionId);
+    if ('sourceCommit' in scope && scope.sourceCommit) query.set('sourceCommit', scope.sourceCommit);
+    return query.toString();
+}
+
+/** Declarative/redacted plugin catalog; skill bodies and executable MCP config are never returned. */
+export async function fetchAgentPluginCatalog(agentId: string): Promise<{ agentId: string; plugins: PluginCatalogEntry[] }> {
+    return localGetRequired(`/api/agents/${encodeURIComponent(agentId)}/plugins/catalog`);
+}
+export async function fetchAgentPluginGrants(agentId: string, scope?: { packageKey: string; versionId?: string; sourceCommit?: string }): Promise<{ grant?: PluginAccessGrant | null; grants?: PluginAccessGrant[] }> {
+    const query = scope ? `?${pluginScopeQuery(scope)}` : '';
+    return localGetRequired(`/api/agents/${encodeURIComponent(agentId)}/plugin-grants${query}`);
+}
+export async function upsertAgentPluginGrant(agentId: string, input: PluginAccessGrantUpsert): Promise<{ grant: PluginAccessGrant }> {
+    const { scope, ...body } = input;
+    return localPut(`/api/agents/${encodeURIComponent(agentId)}/plugin-grants`, { ...scope, ...body });
+}
+export async function deleteAgentPluginGrant(agentId: string, scope: { packageKey: string; versionId?: string; sourceCommit?: string }): Promise<void> {
+    const res = await fetch(`${LOCAL_BASE}/api/agents/${encodeURIComponent(agentId)}/plugin-grants?${pluginScopeQuery(scope)}`, { method: 'DELETE', headers: getAuthHeaders() });
+    if (!res.ok) throw new Error(`DELETE /api/agents/${encodeURIComponent(agentId)}/plugin-grants failed: ${res.status}`);
+}
+export async function createPluginAccessRequest(input: PluginAccessRequestCreate): Promise<{ request: PluginAccessRequest }> {
+    const { scope, ...body } = input;
+    return localPost('/api/plugin-access/requests', { ...scope, ...body });
+}
+export async function fetchPluginAccessRequests(filters: PluginAccessRequestFilters = {}): Promise<{ requests: PluginAccessRequest[] }> {
+    const query = new URLSearchParams();
+    if (filters.agentId) query.set('agentId', filters.agentId);
+    if (filters.status) query.set('status', filters.status);
+    if (filters.scope) for (const [key, value] of new URLSearchParams(pluginScopeQuery(filters.scope))) query.set(key, value);
+    return localGetRequired(`/api/plugin-access/requests${query.size ? `?${query}` : ''}`);
+}
+export async function decidePluginAccessRequest(requestId: string, decision: PluginAccessRequestDecision): Promise<{ request: PluginAccessRequest }> {
+    return localPost(`/api/plugin-access/requests/${encodeURIComponent(requestId)}/decision`, decision);
+}
+export async function fetchPluginAccessEvents(filters: PluginAccessEventFilters = {}): Promise<{ events: PluginAccessEvent[] }> {
+    const query = new URLSearchParams();
+    if ('scope' in filters && filters.scope) for (const [key, value] of new URLSearchParams(pluginScopeQuery(filters.scope))) query.set(key, value);
+    if ('requestId' in filters && filters.requestId) query.set('requestId', filters.requestId);
+    if ('grantId' in filters && filters.grantId) query.set('grantId', filters.grantId);
+    return localGetRequired(`/api/plugin-access/events${query.size ? `?${query}` : ''}`);
 }
 
 export async function fetchAgentPromptDocument(username: string, id: string): Promise<any | null> {
