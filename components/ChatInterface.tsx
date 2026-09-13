@@ -9,6 +9,7 @@ import { useCanvasState } from '../hooks/useCanvasState';
 import { useSessionNoteSync, type SessionNoteSyncPort, type UseSessionNoteSyncResult } from './useSessionNoteSync';
 import * as SystemService from '../services/systemService';
 import * as ServerChat from '../services/serverChatService';
+import ToolActivity, { buildToolActivityGroup, type ToolActivityGroup } from './ToolActivity';
 
 const normalizeCommentItemError = (err: unknown) => {
   const message = err instanceof Error ? err.message : String(err || '');
@@ -187,7 +188,8 @@ const MessageItem = memo(({ msg, isGenerating, isLast }: { msg: Message; isGener
 
   if (msg.role === 'tool') return null;
 
-  // Mensagem assistant com tool_calls e sem content textual — mostrar pill com nome das tools
+  // Mensagem assistant com tool_calls e sem content textual — agrupada em
+  // ToolActivity pelo chamador; só chega aqui em fluxos legados.
   if (msg.role === 'assistant' && isActionOnly) {
     const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
     const toolNames = toolCalls.map((tc: ToolCall) => tc.function?.name ?? 'tool').filter(Boolean);
@@ -626,6 +628,63 @@ const ChatPanel: React.FC<ChatPanelProps> = memo(({
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [history.length, history[history.length - 1]?.content]);
 
+  // Consecutive tool traffic — the assistant messages that issue tool calls and
+  // the `role: 'tool'` messages carrying their results — collapses into a single
+  // expandable activity node, so a long agent cycle reads as one line instead of
+  // dozens of pills.
+  const renderNodes = useMemo(() => {
+    const nodes: Array<
+      | { kind: 'message'; msg: Message; index: number }
+      | { kind: 'activity'; group: ToolActivityGroup; index: number }
+    > = [];
+    let buffer: Message[] = [];
+    let bufferStart = -1;
+
+    const flush = () => {
+      if (buffer.length === 0) return;
+      const group = buildToolActivityGroup(`activity-${bufferStart}`, buffer);
+      if (group) nodes.push({ kind: 'activity', group, index: bufferStart });
+      buffer = [];
+      bufferStart = -1;
+    };
+
+    history.forEach((msg: Message, i: number) => {
+      const toolCalls = Array.isArray(msg?.tool_calls) ? msg.tool_calls : [];
+      if (msg?.role === 'tool') {
+        // A result with no open group (truncated history) has nothing to attach
+        // to; it stayed invisible before this change too.
+        if (buffer.length > 0) buffer.push(msg);
+        return;
+      }
+      if (msg?.role === 'assistant' && toolCalls.length > 0) {
+        if (bufferStart === -1) bufferStart = i;
+        buffer.push(msg);
+        // An assistant turn that both says something and calls tools still shows
+        // its prose, above the activity node the calls fold into.
+        if (typeof msg.content === 'string' && msg.content.trim()) {
+          nodes.push({ kind: 'message', msg: { ...msg, tool_calls: undefined }, index: i });
+        }
+        return;
+      }
+      // While a run streams, useAgentCycle pushes an empty assistant placeholder
+      // after every tool result. Treating those as a boundary would shatter one
+      // cycle into a group per call, so they never flush; the last one still
+      // renders, since that is the live typing indicator.
+      const isEmptyAssistant = msg?.role === 'assistant' && !String(msg?.content ?? '').trim();
+      if (isEmptyAssistant) {
+        // The trailing placeholder is the typing indicator, but only when no
+        // activity group is open — an open group shows its own progress dots,
+        // and two spinners for one wait reads as two waits.
+        if (i === history.length - 1 && buffer.length === 0) nodes.push({ kind: 'message', msg, index: i });
+        return;
+      }
+      flush();
+      nodes.push({ kind: 'message', msg, index: i });
+    });
+    flush();
+    return nodes;
+  }, [history]);
+
   return (
     <div className={`flex flex-col ${isChatVisible ? 'h-full' : 'h-12'} overflow-hidden`}>
       {/* Chat Header */}
@@ -733,14 +792,26 @@ const ChatPanel: React.FC<ChatPanelProps> = memo(({
           </div>
         )}
 
-        {history.map((msg: Message, i: number) => (
-          <MessageItem
-            key={i}
-            msg={msg}
-            isGenerating={isGenerating}
-            isLast={i === history.length - 1}
-          />
-        ))}
+        {renderNodes.map((node, nodeIndex) => {
+          const isLastNode = nodeIndex === renderNodes.length - 1;
+          if (node.kind === 'activity') {
+            return (
+              <ToolActivity
+                key={`activity-${node.index}`}
+                group={node.group}
+                isRunning={isGenerating && isLastNode}
+              />
+            );
+          }
+          return (
+            <MessageItem
+              key={`msg-${node.index}`}
+              msg={node.msg}
+              isGenerating={isGenerating}
+              isLast={isLastNode && node.index === history.length - 1}
+            />
+          );
+        })}
       </div>
 
 

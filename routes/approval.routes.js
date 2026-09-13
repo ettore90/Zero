@@ -8,9 +8,11 @@ import { normalizePlanForStorage, appendCommentToPlanItem, broadcastPlanUpdate, 
 const router = Router();
 
 
-router.get('/approval/plans', checkLocalAccess, (_req, res) => {
+router.get('/approval/plans', checkLocalAccess, (req, res) => {
   try {
-    const persistedPlans = listPersistedPlans();
+    const requestedUsername = typeof req.query?.username === 'string' ? req.query.username.trim() : '';
+    const belongsToRequester = (record) => !requestedUsername || String(record?.username || '').trim() === requestedUsername;
+    const persistedPlans = listPersistedPlans().filter(belongsToRequester);
     const persistedByKey = new Map();
 
     for (const record of persistedPlans) {
@@ -29,6 +31,7 @@ router.get('/approval/plans', checkLocalAccess, (_req, res) => {
 
     const missingPersisted = new Set();
     for (const record of pendingApprovals.values()) {
+      if (!belongsToRequester(record)) continue;
       const planKey = typeof record?.planKey === 'string' ? record.planKey.trim() : '';
       const requestId = typeof record?.requestId === 'string' ? record.requestId.trim() : '';
       if (!planKey && !requestId) {
@@ -113,12 +116,18 @@ router.post('/approval/comment-item', checkLocalAccess, (req, res) => {
   }
 
   pendingApprovals.set(updated.record.requestId, updated.record);
+  if (updated.record.planKey && updated.record.planKey !== updated.record.requestId) {
+    pendingApprovals.set(updated.record.planKey, updated.record);
+  }
   persistPlanRecord(updated.record);
   broadcastPlanUpdate(updated.record);
 
   return res.status(200).json({
     success: true,
     requestId: updated.record.requestId,
+    planKey: updated.record.planKey || updated.record.requestId,
+    status: updated.record.status,
+    planStatus: updated.record.status,
     item: updated.item,
     comment: updated.comment,
     plan: updated.record.plan,
@@ -128,7 +137,8 @@ router.post('/approval/comment-item', checkLocalAccess, (req, res) => {
 
 
 router.post('/approval/complete-item', checkLocalAccess, (req, res) => {
-  const { requestId, planKey, itemId, itemText, username } = req.body || {};
+  const { requestId, planKey, itemId, itemText, username, done } = req.body || {};
+  const nextDone = done !== false;
 
   const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
   const normalizedPlanKey = typeof planKey === 'string' ? planKey.trim() : '';
@@ -150,17 +160,23 @@ router.post('/approval/complete-item', checkLocalAccess, (req, res) => {
   }
 
   const normalizedStatus = normalizePlanStatus(pending.status);
-  if (isTerminalPlanStatus(normalizedStatus)) {
+  // A completed plan may still be reopened by un-checking an item; only a
+  // canceled one is genuinely frozen.
+  const isReopening = !nextDone && normalizedStatus === 'completed';
+  if (isTerminalPlanStatus(normalizedStatus) && !isReopening) {
     return res.status(409).json({ error: 'Cannot mutate checklist items on a terminal plan' });
   }
 
-  const completed = markPlanItemCompleted(pending, normalizedItemId ? { itemId: normalizedItemId } : { itemText: normalizedItemText });
+  const completed = markPlanItemCompleted(pending, {
+    ...(normalizedItemId ? { itemId: normalizedItemId } : { itemText: normalizedItemText }),
+    done: nextDone,
+  });
   if (!completed.ok) {
     return res.status(404).json({ error: completed.error || 'Checklist item not found' });
   }
 
   const nextRecord = completed.record;
-  const finalized = finalizePlanIfComplete(nextRecord);
+  const finalized = nextDone ? finalizePlanIfComplete(nextRecord) : { ok: false };
   const finalRecord = finalized.ok ? finalized.record : nextRecord;
   const pendingPlanKey = finalRecord.planKey || lookupKey;
   const pendingRequestId = finalRecord.requestId || normalizedRequestId || pendingPlanKey;

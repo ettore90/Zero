@@ -113,14 +113,18 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
     const nextDone = !item.done;
     setCompletionErrors(prev => { const next = { ...prev }; delete next[identity]; return next; });
     setItems(prev => prev.map(current => getItemIdentity(current) === identity ? { ...current, done: nextDone } : current));
-    if (nextDone && typeof onCompleteItem === 'function') {
+    // Both directions go to the server. Un-checking used to stay local, so the
+    // tick reappeared on the next refresh.
+    if (typeof onCompleteItem === 'function') {
       try {
         await onCompleteItem(item.id, item.text, nextDone);
       } catch (error) {
-        const message = error instanceof Error && error.message ? error.message : 'Failed to mark checklist item as done.';
-        setItems(prev => prev.map(current => getItemIdentity(current) === identity ? { ...current, done: false } : current));
+        const message = error instanceof Error && error.message
+          ? error.message
+          : (nextDone ? 'Failed to mark checklist item as done.' : 'Failed to reopen checklist item.');
+        setItems(prev => prev.map(current => getItemIdentity(current) === identity ? { ...current, done: item.done } : current));
         setCompletionErrors(prev => ({ ...prev, [identity]: message }));
-        throw error;
+        return;
       }
     }
   };

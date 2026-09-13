@@ -67,6 +67,22 @@ const removeLocalStorage = (key: string) => {
     try { safeWindow?.localStorage.removeItem(key); } catch {}
 };
 
+type TrackedPlanStatus = 'open' | 'in_progress' | 'completed' | 'canceled' | '';
+
+// A plan's status arrives from several places (a SQLite row, an SSE event, the
+// live approval request) that each spell the same state differently. Everything
+// downstream — which buttons render, whether the checklist is editable — keys
+// off this single canonical vocabulary.
+const normalizeTrackedPlanStatus = (value: any): TrackedPlanStatus => {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (!normalized) return '';
+    if (normalized === 'pending' || normalized === 'pending_approval' || normalized === 'awaiting_approval' || normalized === 'open') return 'open';
+    if (normalized === 'approved' || normalized === 'in_progress') return 'in_progress';
+    if (normalized === 'cancelled' || normalized === 'rejected' || normalized === 'canceled') return 'canceled';
+    if (normalized === 'completed') return 'completed';
+    return '';
+};
+
 const App: React.FC = () => {
     const [token, setToken] = useState<string | null>(readFirstLocalStorage([AUTH_TOKEN_STORAGE_KEY, ...LEGACY_AUTH_TOKEN_STORAGE_KEYS]));
     const [username, setUsername] = useState<string>(readFirstLocalStorage([AUTH_USERNAME_STORAGE_KEY, ...LEGACY_AUTH_USERNAME_STORAGE_KEYS]) || '');
@@ -233,11 +249,11 @@ const App: React.FC = () => {
         });
     }, [username]);
 
-    const postApprovalItemComplete = useCallback(async (requestId: string, planKey: string | undefined, itemId: string | undefined, itemText: string | undefined) => {
+    const postApprovalItemComplete = useCallback(async (requestId: string, planKey: string | undefined, itemId: string | undefined, itemText: string | undefined, done: boolean = true) => {
         const response = await fetch(`${LOCAL_BASE}/api/approval/complete-item`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ requestId, planKey, itemId, itemText, username }),
+            body: JSON.stringify({ requestId, planKey, itemId, itemText, username, done }),
         });
         if (!response.ok) {
             throw new Error(await response.text());
@@ -287,42 +303,41 @@ const App: React.FC = () => {
         isGeneratingRef.current = value;
     }, [setAgentGenerating]);
 
-    const buildRuntimePlanCallbacks = useCallback((record: any) => {
+    const buildRuntimePlanCallbacks = useCallback((record: any, statusOverride?: string) => {
         const requestId = String(record?.requestId || '').trim();
         const planKey = String(record?.planKey || record?.approvalKey || requestId).trim();
         const agentId = String(record?.agentId || '').trim();
-        const normalizedStatus = String(record?.status || '').trim().toLowerCase();
+        const normalizedStatus = normalizeTrackedPlanStatus(statusOverride ?? record?.status);
         const isMutablePlan = normalizedStatus === 'open' || normalizedStatus === 'in_progress';
+        const matchesPlan = (candidate: any) => (
+            (requestId && String(candidate?.requestId || '').trim() === requestId)
+            || (planKey && String(candidate?.planKey || '').trim() === planKey)
+            || (planKey && String(candidate?.approvalKey || '').trim() === planKey)
+        );
+        const patchTrackedPlan = (patch: Record<string, any>) => {
+            setStrategyPlanItems((prev: any[]) => (Array.isArray(prev)
+                ? prev.map((item: any) => (matchesPlan(item) ? { ...item, ...patch } : item))
+                : prev));
+        };
         const commentOnItem = async (itemId: string | undefined, itemText: string | undefined, text: string) => {
             if (!isMutablePlan || !requestId || !String(text || '').trim()) return;
             await postApprovalItemComment(requestId, itemId, itemText, text);
         };
-        const completeItem = async (itemId: string | undefined, itemText: string | undefined) => {
+        const completeItem = async (itemId: string | undefined, itemText: string | undefined, done?: boolean) => {
             if (!isMutablePlan) return;
             if ((!requestId && !planKey) || (!String(itemId || '').trim() && !String(itemText || '').trim())) return;
-            const result = await postApprovalItemComplete(requestId, planKey || undefined, itemId, itemText);
+            const result = await postApprovalItemComplete(requestId, planKey || undefined, itemId, itemText, done !== false);
             const updatedPlan = result?.plan && typeof result.plan === 'object' ? result.plan : undefined;
-            const normalizedStatus = String(result?.planStatus || result?.status || '').trim().toLowerCase();
-            const isCompleted = normalizedStatus === 'completed';
+            const resultStatus = normalizeTrackedPlanStatus(result?.planStatus || result?.status);
+            const isCompleted = resultStatus === 'completed';
             const updatedAt = new Date().toISOString();
-            setStrategyPlanItems((prev: any[]) => (Array.isArray(prev) ? prev.map((item: any) => (
-                String(item?.requestId || '').trim() === requestId
-                    || String(item?.planKey || '').trim() === planKey
-                    || String(item?.approvalKey || '').trim() === planKey
-                    ? {
-                        ...item,
-                        ...(updatedPlan ? { plan: updatedPlan } : {}),
-                        ...(isCompleted ? { status: 'completed' } : {}),
-                        updatedAt,
-                      }
-                    : item
-            )) : prev));
+            patchTrackedPlan({
+                ...(updatedPlan ? { plan: updatedPlan } : {}),
+                ...(resultStatus ? { status: resultStatus } : {}),
+                updatedAt,
+            });
             setPendingStrategyPlan((prev: any) => {
-                if (!prev) return prev;
-                const matches = String(prev?.requestId || '').trim() === requestId
-                    || String(prev?.planKey || '').trim() === planKey
-                    || String(prev?.approvalKey || '').trim() === planKey;
-                if (!matches) return prev;
+                if (!prev || !matchesPlan(prev)) return prev;
                 if (isCompleted) return null;
                 return { ...prev, ...(updatedPlan ? { plan: updatedPlan } : {}), updatedAt };
             });
@@ -330,36 +345,36 @@ const App: React.FC = () => {
                 syncAgentGeneratingState(agentId, false);
             }
         };
+        // Restored plans used to come back without an approve handler, which is
+        // why the button disappeared on every refresh: the record was still
+        // `open`, but nothing was wired to answer it.
+        const approvePlan = (revisedPlan?: any) => {
+            if (!requestId) return;
+            const basePlan = record?.plan && typeof record.plan === 'object' ? record.plan : record?.payload;
+            const approvedPlan = revisedPlan && typeof revisedPlan === 'object' ? revisedPlan : basePlan;
+            patchTrackedPlan({ plan: approvedPlan, status: 'in_progress', updatedAt: new Date().toISOString() });
+            syncAgentGeneratingState(agentId, true);
+            respondToApprovalRef.current?.(requestId, true, approvedPlan);
+            setPendingStrategyPlan((prev: any) => (prev && matchesPlan(prev) ? null : prev));
+        };
         const cancelPlan = () => {
             const updatedAt = new Date().toISOString();
-            setStrategyPlanItems((prev: any[]) => (Array.isArray(prev)
-                ? prev.map((item: any) => (
-                    String(item?.requestId || '').trim() === requestId
-                        || String(item?.planKey || '').trim() === planKey
-                        || String(item?.approvalKey || '').trim() === planKey
-                        ? { ...item, status: 'canceled', updatedAt }
-                        : item
-                ))
-                : prev));
+            patchTrackedPlan({ status: 'canceled', updatedAt });
             syncAgentGeneratingState(agentId, false);
             if (requestId) respondToApprovalRef.current?.(requestId, false);
-            setPendingStrategyPlan((prev: any) => (
-                String(prev?.requestId || '').trim() === requestId
-                    || String(prev?.planKey || '').trim() === planKey
-                    || String(prev?.approvalKey || '').trim() === planKey
-                    ? { ...prev, status: 'canceled', updatedAt }
-                    : prev
-            ));
+            setPendingStrategyPlan((prev: any) => (prev && matchesPlan(prev) ? { ...prev, status: 'canceled', updatedAt } : prev));
         };
         return {
             ...(isMutablePlan ? { onCommentItem: commentOnItem, onCompleteItem: completeItem } : {}),
-            ...(normalizedStatus === 'open' ? { onReject: cancelPlan } : {}),
+            ...(normalizedStatus === 'open' ? { onApprove: approvePlan } : {}),
+            ...(isMutablePlan ? { onReject: cancelPlan } : {}),
         };
     }, [postApprovalItemComment, postApprovalItemComplete, setPendingStrategyPlan, setStrategyPlanItems, syncAgentGeneratingState]);
 
     const restoreStrategyPlanItemsFromRuntime = useCallback(async () => {
+        if (!username) return;
         try {
-            const response = await fetch(`${LOCAL_BASE}/api/approval/plans`, {
+            const response = await fetch(`${LOCAL_BASE}/api/approval/plans?username=${encodeURIComponent(username)}`, {
                 headers: { 'Content-Type': 'application/json' },
             });
             if (!response.ok) return;
@@ -382,11 +397,13 @@ const App: React.FC = () => {
                     const plan = record?.plan && typeof record.plan === 'object' ? record.plan : record?.payload;
                     const agentId = String(record?.agentId || '').trim();
                     if (!requestId || !agentId) continue;
-                    const itemId = String(record?.tool_call_id || requestId);
-                    const statusPlan = String(record?.statusPlan || record?.status || record?.decision?.status || '').trim().toLowerCase();
-                    const normalizedStatus = statusPlan === 'approved' ? 'in_progress' : statusPlan === 'cancelled' || statusPlan === 'rejected' ? 'canceled' : statusPlan === 'open' || statusPlan === 'in_progress' || statusPlan === 'completed' || statusPlan === 'canceled' ? statusPlan : '';
-                    const derivedStatus = normalizedStatus || (record?.decision?.approved ? 'completed' : 'open');
-                    const callbacks = buildRuntimePlanCallbacks(record);
+                    // Same identity the live approval path assigns, so a plan
+                    // restored after a refresh keeps its selection in the
+                    // approvals rail instead of appearing as a new row.
+                    const itemId = requestId;
+                    const derivedStatus = normalizeTrackedPlanStatus(record?.statusPlan || record?.status || record?.decision?.status)
+                        || (record?.decision?.approved ? 'in_progress' : 'open');
+                    const callbacks = buildRuntimePlanCallbacks(record, derivedStatus);
                     const baseItem = {
                         id: itemId,
                         agentId,
@@ -410,7 +427,7 @@ const App: React.FC = () => {
         } catch {
             // ignore bootstrap failures; live SSE will still populate future plans
         }
-    }, [buildRuntimePlanCallbacks, setStrategyPlanItems]);
+    }, [buildRuntimePlanCallbacks, setStrategyPlanItems, username]);
 
     const sseHandlersRef = useRef({
         addNotification,
@@ -418,6 +435,7 @@ const App: React.FC = () => {
         setPendingDryRun,
         setRunningAgents,
         addLog,
+        restoreStrategyPlans: (() => {}) as () => void,
         setAgents: (agents: any[]) => { setAgents(agents); agentsRef.current = agents; },
     });
     // Atualizar refs sem recriar o hook
@@ -427,6 +445,7 @@ const App: React.FC = () => {
         sseHandlersRef.current.setPendingDryRun = setPendingDryRun;
         sseHandlersRef.current.setRunningAgents = setRunningAgents;
         sseHandlersRef.current.addLog = addLog;
+        sseHandlersRef.current.restoreStrategyPlans = () => { void restoreStrategyPlanItemsFromRuntime(); };
     });
 
     const { respondToApproval: _respondToApproval } = useAgentStream({
@@ -696,20 +715,29 @@ const App: React.FC = () => {
                         }).catch(() => {});
                     }
                 }
-            } else if (event.type === 'approval:decision') {
-                const agentId = event.agentId || null;
-                if (agentId) {
-                    syncAgentGeneratingState(agentId, false);
+            } else if (event.type === 'approval:decision' || event.type === 'approval:plan_updated') {
+                if (event.type === 'approval:decision' && event.agentId) {
+                    syncAgentGeneratingState(event.agentId, false);
                 }
-                const planStatus = event.planStatus || event.itemStatus || event.status || null;
+                // `itemStatus` describes one checklist item ('done'/'open'), not the
+                // plan; folding it in here used to drag an in-progress plan back
+                // to 'open'.
+                const planStatus = normalizeTrackedPlanStatus(event.planStatus || event.status);
                 if (event.requestId && event.plan) {
-                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined, planStatus === 'approved' ? 'in_progress' : planStatus === 'in_progress' ? 'in_progress' : planStatus === 'canceled' || planStatus === 'cancelled' || planStatus === 'rejected' ? 'canceled' : undefined, event.sessionId || event.pendingApproval?.sessionId || null);
+                    mergePlanIntoTrackedItems(
+                        event.requestId,
+                        event.plan,
+                        event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined,
+                        planStatus || undefined,
+                        event.sessionId || event.pendingApproval?.sessionId || null,
+                    );
                 }
-            } else if (event.type === 'approval:plan_updated') {
-                const planStatus = event.planStatus || event.itemStatus || event.status || null;
-                if (event.requestId && event.plan) {
-                    mergePlanIntoTrackedItems(event.requestId, event.plan, event.planKey || event.approvalKey || event.approval_key || event.pendingApproval?.planKey || event.pendingApproval?.approvalKey || event.pendingApproval?.approval_key || undefined, planStatus === 'completed' ? 'completed' : planStatus === 'in_progress' ? 'in_progress' : planStatus === 'canceled' || planStatus === 'cancelled' || planStatus === 'rejected' ? 'canceled' : undefined, event.sessionId || event.pendingApproval?.sessionId || null);
-                }
+                // The broadcast carries the plan but not the handlers, and it may
+                // be the first this tab hears of the plan at all. Re-reading the
+                // persisted list is what keeps status, comments and the approve
+                // button in sync with the backend rather than with whatever this
+                // tab happened to observe.
+                sseHandlersRef.current.restoreStrategyPlans?.();
             } else if (event.type === 'write_file_dry_run') {
                 sseHandlersRef.current.setPendingDryRun({
                     payload: {

@@ -16,6 +16,11 @@ export function normalizePlanStatus(status) {
   if (!normalized) return '';
   if (normalized === 'cancelled' || normalized === 'rejected') return 'canceled';
   if (normalized === 'approved') return 'in_progress';
+  // A freshly requested plan is persisted as `pending`, but every consumer
+  // (UI grouping, callback gating, prompt injection) reasons in terms of the
+  // canonical `open`. Collapsing them here is what keeps a plan restored from
+  // SQLite after a refresh indistinguishable from the live one.
+  if (normalized === 'pending' || normalized === 'pending_approval' || normalized === 'awaiting_approval') return 'open';
   return normalized;
 }
 
@@ -110,17 +115,23 @@ function resolveChecklistItemIndex(checklist, { itemId, itemText }) {
   return { ok: true, index: matches[0] };
 }
 
-export function markPlanItemCompleted(record, { itemId, itemText }) {
+export function markPlanItemCompleted(record, { itemId, itemText, done = true }) {
   const normalizedPlan = normalizePlanForStorage(record?.plan ?? record?.payload);
   const checklist = Array.isArray(normalizedPlan?.checklist) ? [...normalizedPlan.checklist] : [];
   const resolved = resolveChecklistItemIndex(checklist, { itemId, itemText });
   if (!resolved.ok) return { ok: false, error: resolved.error };
   const index = resolved.index;
-  const updatedItem = { ...checklist[index], done: true };
+  const nextDone = done !== false;
+  const updatedItem = { ...checklist[index], done: nextDone };
   checklist[index] = updatedItem;
   const allDone = checklist.length > 0 && checklist.every((item) => Boolean(item?.done));
-  const updatedPlan = { ...normalizedPlan, checklist, ...(allDone ? { status: 'completed' } : {}) };
-  const updatedRecord = { ...record, plan: updatedPlan, payload: updatedPlan, status: allDone ? 'completed' : normalizePlanStatus(record?.status), updatedAt: Date.now() };
+  const currentStatus = normalizePlanStatus(record?.status);
+  // Un-checking an item on an already-completed plan reopens it, so the
+  // checkbox is a real two-way control instead of a one-way latch whose
+  // "off" state only ever lived in the browser.
+  const nextStatus = allDone ? 'completed' : (currentStatus === 'completed' ? 'in_progress' : currentStatus);
+  const updatedPlan = { ...normalizedPlan, checklist, ...(nextStatus ? { status: nextStatus } : {}) };
+  const updatedRecord = { ...record, plan: updatedPlan, payload: updatedPlan, status: nextStatus, updatedAt: Date.now() };
   return { ok: true, record: updatedRecord, item: updatedItem };
 }
 

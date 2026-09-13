@@ -22,7 +22,7 @@ import { rememberMemory, recallMemories, updateMemoryRecord, deleteMemories } fr
 import { editSessionNoteLocalized, normalizeSessionNote, hasSessionNoteTarget, readSessionNoteFragment } from './services/sessionNoteService.js';
 import { broadcastToUser } from './services/streamBroker.js';
 import { pendingApprovals } from './services/runtime.js';
-import { appendCommentToPlanItem, broadcastPlanUpdate, findLatestInProgressPlanForAgent, markPlanItemCompleted, normalizePlanForStorage } from './services/planState.js';
+import { appendCommentToPlanItem, broadcastPlanUpdate, findLatestInProgressPlanForAgent, markPlanItemCompleted, normalizePlanForStorage, persistPlanRecord } from './services/planState.js';
 import { areSessionNotesEnabled } from './services/toolAccessPolicy.js';
 import { loadPluginFeaturesForAgent } from './services/pluginFeatureLoader.js';
 import { inspectPluginForAuthorizedCaller } from './services/pluginCatalog.js';
@@ -2904,6 +2904,13 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         const updated = markPlanItemCompleted(targetRecord, { itemId: args.itemId, itemText: args.itemText });
         if (!updated.ok) return { error: updated.error || 'Checklist item not found' };
         pendingApprovals.set(updated.record.requestId, updated.record);
+        if (updated.record.planKey && updated.record.planKey !== updated.record.requestId) {
+            pendingApprovals.set(updated.record.planKey, updated.record);
+        }
+        // Without this the tick only ever existed in this process's Map, so a
+        // browser refresh re-read the untouched row from SQLite and the item
+        // came back unchecked.
+        persistPlanRecord(updated.record);
         broadcastPlanUpdate(updated.record);
         return { success: true, planKey: updated.record.requestId, planStatus: updated.record.status, itemStatus: updated.item?.status || 'done', item: updated.item };
     }
@@ -2924,6 +2931,10 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         });
         if (!updated.ok) return { error: updated.error || 'Checklist item not found' };
         pendingApprovals.set(updated.record.requestId, updated.record);
+        if (updated.record.planKey && updated.record.planKey !== updated.record.requestId) {
+            pendingApprovals.set(updated.record.planKey, updated.record);
+        }
+        persistPlanRecord(updated.record);
         broadcastPlanUpdate(updated.record);
         return { success: true, planKey: updated.record.requestId, item: updated.item };
     }

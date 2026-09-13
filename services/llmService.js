@@ -2591,7 +2591,11 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
         toolCalls.length > 0 || trimmed(fullContent) || !isSaiLike;
 
       if (shouldPersistAssistantMessage) {
-        const assistantMsg = { role: 'assistant', content: fullContent || null };
+        // Stamped here, not at snapshot time: persistHistorySnapshot backfills a
+        // single `Date.now()` onto every unstamped message, which collapsed a
+        // whole agent cycle to one instant and left the UI unable to report how
+        // long the run actually took.
+        const assistantMsg = { role: 'assistant', content: fullContent || null, timestamp: Date.now() };
         if (accumulatedUsage.reasoning_tokens > 0) assistantMsg.reasoningTokens = accumulatedUsage.reasoning_tokens;
         if (toolCalls.length > 0) assistantMsg.tool_calls = toolCalls;
         inFlightAssistantMessage = assistantMsg;
@@ -2806,7 +2810,8 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
         });
       }
 
-      history.push(...toolResults);
+      const toolResultsAt = Date.now();
+      history.push(...toolResults.map((result) => ({ ...result, timestamp: result.timestamp || toolResultsAt })));
       persistHistorySnapshot();
       inFlightAssistantMessage = null;
       if (stopAgentLoop) break;
