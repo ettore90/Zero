@@ -197,9 +197,13 @@ async function materialize(response, requestedPath) {
   if (!isPlainOwnDataObject(payload)) fail('INVALID_PAYLOAD');
   if (ownValue(payload, 'type') !== 'file' || ownValue(payload, 'path') !== requestedPath || ownValue(payload, 'encoding') !== 'base64') fail('INVALID_PAYLOAD');
   const content = ownValue(payload, 'content');
-  if (typeof content !== 'string' || !BASE64.test(content)) fail('INVALID_CONTENT');
-  if (content.length > MAX_BASE64_CONTENT_LENGTH) fail('FILE_TOO_LARGE');
-  const bytes = Buffer.from(content, 'base64');
+  // GitHub's Contents API may fold base64 content across lines. Accept only ASCII
+  // whitespace used for folding, then validate and decode the normalized payload.
+  if (typeof content !== 'string' || /[^A-Za-z0-9+/=\r\n\t ]/.test(content)) fail('INVALID_CONTENT');
+  const normalizedContent = content.replace(/[\r\n\t ]/g, '');
+  if (!BASE64.test(normalizedContent)) fail('INVALID_CONTENT');
+  if (normalizedContent.length > MAX_BASE64_CONTENT_LENGTH) fail('FILE_TOO_LARGE');
+  const bytes = Buffer.from(normalizedContent, 'base64');
   if (Buffer.from(bytes.toString('utf8'), 'utf8').compare(bytes) !== 0) fail('INVALID_UTF8');
   if (bytes.length > MAX_FILE_BYTES) fail('FILE_TOO_LARGE');
   const sha = ownValue(payload, 'sha');
