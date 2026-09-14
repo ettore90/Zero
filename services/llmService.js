@@ -1514,7 +1514,7 @@ function createDispatcherCtx(username) {
   return buildDispatcherCtx(username);
 }
 
-export async function runAgentLoop({ username, agentId, messages, tools: externalTools, isEphemeral = false, timeoutMs = 14400000, onEvent, sessionId = null, modelId: modelIdOverride = null, sandbox = null, }) {
+export async function runAgentLoop({ username, agentId, messages, tools: externalTools, isEphemeral = false, timeoutMs = 14400000, onEvent, sessionId = null, modelId: modelIdOverride = null, sandbox = null, projectPath = null, projectName = null, }) {
   const resolved = resolveModelConfig(username, agentId, modelIdOverride);
   if (!resolved) throw new Error(`Agent or model not found: ${agentId}`);
 
@@ -2057,13 +2057,22 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
       requestHistory = [...requestHistory.slice(0, firstSysIdx), ...requestHistory.slice(firstSysIdx + 1)];
     }
 
-    // Instruções do repositório (CLAUDE.md / AGENTS.md), lidas a partir do cwd do agente.
-    // Bloco estável: fica logo após o system prompt para entrar no prefixo cacheado.
+    // Projeto ativo do project tree + instruções do repositório (CLAUDE.md / AGENTS.md).
+    // O caminho vem do frontend; o cwd do agente é fallback. Bloco estável: fica logo
+    // após o system prompt para entrar no prefixo cacheado.
     try {
-      const projectInstructions = buildProjectInstructionsBlock(getCwd(agentId));
+      const projectInstructions = buildProjectInstructionsBlock({
+        projectPath,
+        projectName,
+        fallbackCwd: getCwd(agentId),
+      });
       if (projectInstructions) {
         prefixBlocks.push({ role: 'system', content: projectInstructions.content, _cacheHint: true });
-        auditLog('project_instructions_loaded', { files: projectInstructions.files });
+        auditLog('project_instructions_loaded', {
+          projectRoot: projectInstructions.projectRoot,
+          files: projectInstructions.files,
+        });
+        console.log(`[AgentLoop] Project context | agent=${agentId} | root=${projectInstructions.projectRoot || 'none'} | files=${projectInstructions.files.map((f) => f.path).join(',') || 'none'}`);
       }
     } catch (err) {
       console.error('[AgentLoop] Failed to load project instructions:', err?.message || err);
@@ -2739,7 +2748,9 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
             .catch((error) => ({ ok: false, error })));
         }
         if (prefetchedToolResults.size > 1) {
-          auditLog('parallel_tool_prefetch', { count: prefetchedToolResults.size, tools: toolCalls.filter((tc) => prefetchedToolResults.has(tc.id)).map((tc) => tc.function.name) });
+          // auditLog só grava em execução de subagente, e o prefetch é desligado lá;
+          // o log do processo é o único registro possível deste caminho.
+          console.log(`[AgentLoop] Parallel prefetch | agent=${agentId} | ${toolCalls.filter((tc) => prefetchedToolResults.has(tc.id)).map((tc) => tc.function.name).join(',')}`);
         }
       }
 

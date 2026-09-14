@@ -33,6 +33,7 @@ export interface ServerChatOptions {
     onLog?: (entry: any) => void;
     onEvent?: (event: string, data: any) => void;
     projectPath?: string;
+    projectName?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,14 +259,14 @@ export async function stopAgentRun(username: string, agentId?: string, sessionId
 // executeChatRequest — sends only new message; server loads history
 // ---------------------------------------------------------------------------
 export async function executeChatRequest(opts: ServerChatOptions): Promise<ServerChatResult> {
-    const { username, agentId, sessionId, newMessage, model, signal, onChunk, onLog, onEvent, projectPath } = opts;
+    const { username, agentId, sessionId, newMessage, model, signal, onChunk, onLog, onEvent, projectPath, projectName } = opts;
 
     const requestStart = Date.now();
 
     const response = await fetch(`${LOCAL_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, agentId, sessionId, newMessage, model, projectPath }),
+        body: JSON.stringify({ username, agentId, sessionId, newMessage, model, projectPath, projectName }),
         signal,
     });
 

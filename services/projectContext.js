@@ -7,14 +7,17 @@
 // literalmente `~/Software/Uby/<projeto>/CLAUDE.md`. Um único arquivo serve os
 // dois harnesses; não existe cópia para manter em sincronia.
 //
-// A busca sobe do cwd até a raiz e monta os arquivos do mais genérico para o
-// mais específico, de forma que a instrução mais próxima do cwd venha por
-// último e prevaleça em caso de conflito.
+// O ponto de partida preferido é o projeto ativo do project tree, que o frontend
+// envia no corpo de /api/chat; o cwd do agente é apenas o fallback. A busca sobe
+// desse ponto até a raiz e monta os arquivos do mais genérico para o mais
+// específico, de forma que a instrução mais próxima do projeto venha por último
+// e prevaleça em caso de conflito.
 // =============================================================================
 
 import fs from 'fs';
 import path from 'path';
 import { env } from '../config/env.js';
+import { hostToContainer } from '../utils/pathTransforms.js';
 
 const INSTRUCTION_FILENAMES = ['CLAUDE.md', 'AGENTS.md'];
 const WORKSPACE_ROOT = (typeof env?.CONTAINER_APP_ROOT === 'string' && env.CONTAINER_APP_ROOT.trim()) || '/uby';
@@ -26,6 +29,49 @@ const MAX_DEPTH = 12;
 // path -> { mtimeMs, size, content }. Evita reler o arquivo a cada turno sem
 // nunca servir conteúdo velho: mtime e size são revalidados em cada leitura.
 const fileCache = new Map();
+
+function isDirectory(candidate) {
+  try { return fs.statSync(candidate).isDirectory(); } catch { return false; }
+}
+
+/**
+ * Traduz o caminho do projeto ativo para um diretório que exista neste processo.
+ * O project tree guarda o caminho como o usuário o cadastrou, que pode ser o do
+ * host; o mapeamento host→container resolve esse caso, e a última tentativa
+ * reancora o sufixo do caminho na raiz do workspace (`/uby/<projeto>`) para
+ * quando não houver HOST_WORKSPACE_ROOT configurado. Retorna null se nada existir.
+ */
+export function resolveProjectRoot(projectPath) {
+  const raw = String(projectPath || '').trim();
+  if (!raw) return null;
+
+  const normalized = path.posix.resolve(raw.replace(/\\/g, '/'));
+  if (isDirectory(normalized)) return normalized;
+
+  const mapped = path.posix.resolve(String(hostToContainer(normalized, env) || '').replace(/\\/g, '/'));
+  if (mapped && isDirectory(mapped)) return mapped;
+
+  const workspaceRoot = path.posix.resolve(String(WORKSPACE_ROOT || '/uby').replace(/\\/g, '/'));
+  const segments = normalized.split('/').filter(Boolean);
+  for (let start = 0; start < segments.length; start += 1) {
+    const candidate = path.posix.join(workspaceRoot, segments.slice(start).join('/'));
+    if (isDirectory(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+/** Branch atual lido direto de .git/HEAD — sem shell e sem custo perceptível. */
+function readGitBranch(projectRoot) {
+  try {
+    const head = fs.readFileSync(path.posix.join(projectRoot, '.git', 'HEAD'), 'utf8').trim();
+    const match = /^ref:\s*refs\/heads\/(.+)$/.exec(head);
+    if (match) return match[1];
+    return /^[0-9a-f]{7,40}$/i.test(head) ? `${head.slice(0, 12)} (detached)` : null;
+  } catch {
+    return null;
+  }
+}
 
 function readInstructionFile(filePath) {
   let stat;
@@ -109,28 +155,54 @@ export function resolveProjectInstructions(startPath) {
 }
 
 /**
- * Monta o bloco de sistema com as instruções de projeto, ou null quando não houver.
+ * Monta o bloco de sistema com o projeto ativo e suas instruções.
+ *
+ * `projectPath`/`projectName` vêm do project tree (projeto ativo no frontend) e
+ * têm prioridade sobre `fallbackCwd`, que é apenas o diretório corrente do agente.
+ * Retorna null quando não há projeto resolvível nem arquivo de instrução —
+ * nesse caso nada é injetado no contexto.
  */
-export function buildProjectInstructionsBlock(startPath) {
+export function buildProjectInstructionsBlock({ projectPath, projectName, fallbackCwd } = {}) {
+  const projectRoot = resolveProjectRoot(projectPath);
+  const startPath = projectRoot || fallbackCwd || '/';
   const resolved = resolveProjectInstructions(startPath);
-  if (!resolved) return null;
+  if (!projectRoot && !resolved) return null;
 
-  const sections = resolved.files.map(({ path: filePath, content }) => `### ${filePath}\n\n${content}`);
+  const header = [];
+  if (projectRoot) {
+    const name = String(projectName || '').trim() || path.posix.basename(projectRoot);
+    const branch = readGitBranch(projectRoot);
+    header.push('## Projeto ativo');
+    header.push('');
+    header.push(`Repositório selecionado no project tree: **${name}**`);
+    header.push(`- Caminho: \`${projectRoot}\``);
+    if (branch) header.push(`- Branch: \`${branch}\``);
+    header.push('');
+    header.push('É o projeto sobre o qual o usuário está falando quando não disser outro.');
+    header.push('Use esse caminho como raiz para buscas, leituras e comandos.');
+  }
 
-  const content = [
-    '## Instruções do projeto',
-    '',
-    'Arquivos de instrução encontrados a partir do diretório de trabalho atual.',
-    'São instruções do repositório e valem para o trabalho nele: siga-as como',
-    'convenção obrigatória do projeto. Quando dois arquivos conflitarem, o mais',
-    'próximo do diretório de trabalho prevalece (eles aparecem do mais genérico',
-    'para o mais específico). Regras de sistema e de segurança continuam acima delas.',
-    resolved.truncated ? 'Parte do conteúdo foi omitida por limite de tamanho.' : null,
-    '',
-    sections.join('\n\n'),
-  ].filter((line) => line !== null).join('\n');
+  const body = [];
+  if (resolved) {
+    const sections = resolved.files.map(({ path: filePath, content }) => `### ${filePath}\n\n${content}`);
+    body.push('## Instruções do projeto');
+    body.push('');
+    body.push('São instruções do repositório e valem para o trabalho nele: siga-as como');
+    body.push('convenção obrigatória do projeto. Quando dois arquivos conflitarem, o mais');
+    body.push('próximo do projeto prevalece (eles aparecem do mais genérico para o mais');
+    body.push('específico). Regras de sistema e de segurança continuam acima delas.');
+    if (resolved.truncated) body.push('Parte do conteúdo foi omitida por limite de tamanho.');
+    body.push('');
+    body.push(sections.join('\n\n'));
+  }
 
-  return { content, files: resolved.files.map(({ path: filePath, chars }) => ({ path: filePath, chars })) };
+  const content = [header.join('\n'), body.join('\n')].filter(Boolean).join('\n\n');
+
+  return {
+    content,
+    projectRoot,
+    files: resolved ? resolved.files.map(({ path: filePath, chars }) => ({ path: filePath, chars })) : [],
+  };
 }
 
 /** Exposto para teste e para invalidação explícita. */

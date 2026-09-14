@@ -11,7 +11,7 @@ function resolveScopedUsername(req) {
 
 router.post('/chat', checkLocalAccess, async (req, res) => {
   const username = resolveScopedUsername(req);
-  const { agentId, newMessage, sessionId, model } = req.body;
+  const { agentId, newMessage, sessionId, model, projectPath, projectName } = req.body;
   console.log(`[Chat] REQUEST | agentId=${agentId} | model_from_body=${model || 'undefined'} | username=${username}`);
   const legacyMessages = req.body.messages;
 
@@ -79,6 +79,8 @@ router.post('/chat', checkLocalAccess, async (req, res) => {
       isEphemeral: false,
       onEvent: (event, data) => sendEvent(event, data),
       sessionId,
+      projectPath,
+      projectName,
     });
 
     if (sessionId) {

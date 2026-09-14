@@ -315,6 +315,7 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
             signal,
             onLog: opts.addLog,
             projectPath: opts.projects.find((p: any) => p.id === opts.activeProjectId)?.path,
+            projectName: opts.projects.find((p: any) => p.id === opts.activeProjectId)?.name,
             onEvent: (event, data) => {
               if (isEphemeral) return;
               // assistant_message is handled by onChunk -> flushChunk. Do NOT duplicate the assistant entry here.
