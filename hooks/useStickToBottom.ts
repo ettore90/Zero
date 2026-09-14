@@ -40,10 +40,14 @@ export const useStickToBottom = <TScroll extends HTMLElement = HTMLDivElement, T
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = scrollRef.current;
     if (!el) return;
+    // `isAtBottom` não é marcado aqui de propósito: com rolagem suave a chegada
+    // leva alguns frames e pode ser interrompida no caminho. Quem atualiza o
+    // estado é o `measure` disparado pelos eventos de scroll da própria
+    // animação, então o botão só some quando a lista realmente chegou ao fim.
     stickRef.current = true;
-    setIsAtBottom(true);
     el.scrollTo({ top: el.scrollHeight, behavior });
-  }, []);
+    if (behavior === 'auto') measure();
+  }, [measure]);
 
   useEffect(() => {
     const el = scrollRef.current;
