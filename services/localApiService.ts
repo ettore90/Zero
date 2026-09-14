@@ -62,7 +62,7 @@ export async function localPost<T = any>(path: string, body: object): Promise<T>
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+    if (!res.ok) throw await requestError('POST', path, res);
     return res.json();
 }
 
@@ -148,20 +148,12 @@ export interface ClaudePluginImportCandidate {
         metadata?: { claudePlugin?: { name?: string; version?: string; root?: string }; mcpInventory?: { serverKeys?: string[] } };
     };
 }
-export interface ClaudePluginPreviewRequest { sourcePin: PinnedGithubPromptSourcePin; pluginRoot?: string; }
-export interface ClaudePluginPreviewResponse { sourcePin: PinnedGithubPromptSourcePin; candidates: ClaudePluginImportCandidate[]; }
-export interface ClaudePluginImportRequest extends ClaudePluginPreviewRequest {
-    pluginRoot: string;
-    package: { packageKey: string; metadata: Record<string, never> };
-    version: { version: string };
-    documentKey: string;
-    artifactMappings: Array<{ artifactKey: string; blockKey: string; blockType: 'text'; included: boolean; position: number; metadata: Record<string, never> }>;
+export interface ClaudePluginDiscoveryResponse { sourceKey: string; resolvedCommit: string; candidates: ClaudePluginImportCandidate[]; }
+export async function discoverClaudePluginsFromSource(sourceKey: string): Promise<ClaudePluginDiscoveryResponse> {
+    return localPost<ClaudePluginDiscoveryResponse>(`/api/settings/prompt-package-sync-sources/${encodeURIComponent(sourceKey)}/claude-plugins/discover`, {});
 }
-export async function previewClaudePluginImport(request: ClaudePluginPreviewRequest): Promise<ClaudePluginPreviewResponse> {
-    return localPost<ClaudePluginPreviewResponse>('/api/settings/prompt-packages/claude-plugin/preview', request);
-}
-export async function importClaudePluginFromPreview(request: ClaudePluginImportRequest): Promise<{ changed: boolean }> {
-    return localPost<{ changed: boolean }>('/api/settings/prompt-packages/claude-plugin/import', request);
+export async function importClaudePluginFromSource(sourceKey: string, request: { pluginRoot: string; documentKey: string }): Promise<{ changed: boolean; resolvedCommit: string }> {
+    return localPost<{ changed: boolean; resolvedCommit: string }>(`/api/settings/prompt-package-sync-sources/${encodeURIComponent(sourceKey)}/claude-plugins/import`, request);
 }
 
 export async function stagePromptPackage<T = any>(payload: object): Promise<T> {

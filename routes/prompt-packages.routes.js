@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { checkLocalAccess } from '../middlewares/localAccess.js';
 import { buildPromptPackageImport } from '../services/promptPackageImporter.js';
-import { ClaudePluginImportError, importClaudePluginFromPreview, previewClaudePluginImport } from '../services/claudePluginImportService.js';
+import { ClaudePluginImportError, discoverClaudePluginsFromSource, importClaudePluginFromSource } from '../services/claudePluginImportService.js';
 import { stageImportedPromptPackage } from '../services/promptPackagePersistenceAdapter.js';
 import {
+  getPromptPackageSyncSource,
   listPromptPackageSyncSources,
   upsertPromptPackageSyncSource,
 } from '../services/promptPackageSyncConfigStore.js';
@@ -484,32 +485,33 @@ function claudePluginStatus(error) {
   return 400;
 }
 
-router.post('/settings/prompt-packages/claude-plugin/preview', checkLocalAccess, async (req, res) => {
+function sourceForKey(sourceKey) {
+  const source = getPromptPackageSyncSource(sourceKey);
+  if (!source) throw new ClaudePluginImportError('SOURCE_NOT_CONFIGURED');
+  return { provider: 'github', repository: source.repository, ref: source.sourceRef };
+}
+
+router.post('/settings/prompt-package-sync-sources/:sourceKey/claude-plugins/discover', checkLocalAccess, async (req, res) => {
   try {
-    if (typeof globalThis.fetch !== 'function') return res.status(503).json({ error: 'Claude plugin preview is unavailable' });
-    const fetchImpl = createGithubPrivateReadFetch({
-      ownerUsername: githubPrivateAccessOwner(req),
-      source: { provider: 'github', repository: req.body?.sourcePin?.repository, ref: req.body?.sourcePin?.ref },
-      fetchImpl: globalThis.fetch,
-    });
-    const preview = await previewClaudePluginImport({ ...req.body, fetchImpl });
-    return res.status(200).json(preview);
+    if (typeof globalThis.fetch !== 'function') return res.status(503).json({ error: 'Claude plugin discovery is unavailable' });
+    const ownerUsername = githubPrivateAccessOwner(req);
+    const source = sourceForKey(req.params.sourceKey);
+    const result = await discoverClaudePluginsFromSource({ sourceKey: req.params.sourceKey, fetchImpl: createGithubPrivateReadFetch({ ownerUsername, source, fetchImpl: globalThis.fetch }) });
+    return res.status(200).json(result);
   } catch (error) {
     const status = error?.statusCode === 401 ? 401 : claudePluginStatus(error);
-    return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 500 ? 'unable to preview Claude plugin import' : 'Claude plugin preview rejected' });
+    return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 500 ? 'unable to discover Claude plugins' : 'Claude plugin discovery rejected' });
   }
 });
 
-router.post('/settings/prompt-packages/claude-plugin/import', checkLocalAccess, async (req, res) => {
+router.post('/settings/prompt-package-sync-sources/:sourceKey/claude-plugins/import', checkLocalAccess, async (req, res) => {
   try {
+    if (!isPlainObject(req.body) || Object.keys(req.body).some((key) => !['pluginRoot', 'documentKey'].includes(key))) return res.status(400).json({ error: 'invalid Claude plugin import request' });
     if (typeof globalThis.fetch !== 'function') return res.status(503).json({ error: 'Claude plugin import is unavailable' });
-    const fetchImpl = createGithubPrivateReadFetch({
-      ownerUsername: githubPrivateAccessOwner(req),
-      source: { provider: 'github', repository: req.body?.sourcePin?.repository, ref: req.body?.sourcePin?.ref },
-      fetchImpl: globalThis.fetch,
-    });
-    const result = await importClaudePluginFromPreview({ ...req.body, actor: githubPrivateAccessOwner(req), fetchImpl });
-    return res.status(result.changed ? 201 : 200).json({ package: result.package, version: result.version, artifacts: result.artifacts, event: result.event, changed: result.changed });
+    const ownerUsername = githubPrivateAccessOwner(req);
+    const source = sourceForKey(req.params.sourceKey);
+    const result = await importClaudePluginFromSource({ sourceKey: req.params.sourceKey, pluginRoot: req.body.pluginRoot, documentKey: req.body.documentKey, actor: ownerUsername, fetchImpl: createGithubPrivateReadFetch({ ownerUsername, source, fetchImpl: globalThis.fetch }) });
+    return res.status(result.changed ? 201 : 200).json({ package: result.package, version: result.version, artifacts: result.artifacts, event: result.event, changed: result.changed, sourceKey: result.sourceKey, resolvedCommit: result.resolvedCommit });
   } catch (error) {
     const status = error?.statusCode === 401 ? 401 : claudePluginStatus(error);
     return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 500 ? 'unable to import Claude plugin' : 'Claude plugin import rejected' });

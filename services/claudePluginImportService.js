@@ -1,102 +1,85 @@
 import { discoverClaudePluginManifests } from './claudePluginManifestDiscovery.js';
-import { fetchPinnedGithubPromptFiles, fetchPinnedGithubTreePaths } from './pinnedGithubPromptClient.js';
+import { fetchPinnedGithubPromptFiles, fetchPinnedGithubTreePaths, resolveGithubRefToCommit } from './pinnedGithubPromptClient.js';
 import { getPromptPackageSyncSource } from './promptPackageSyncConfigStore.js';
 import { stagePinnedGithubPromptPackage } from './promptPackageSyncService.js';
-import { normalizePromptPackageSourcePin } from './promptPackageSourcePolicy.js';
+import { upsertPromptPackageSyncJob } from './promptPackageSyncJobStore.js';
 
-const PREVIEW_KEYS = new Set(['sourcePin', 'pluginRoot', 'fetchImpl']);
-const IMPORT_KEYS = new Set(['sourcePin', 'pluginRoot', 'package', 'version', 'documentKey', 'artifactMappings', 'details', 'actor', 'fetchImpl']);
 const MAX_PLUGIN_FILES = 64;
+const SOURCE_KEY = /^github:([a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*)@([^\s]+)$/;
 
 export class ClaudePluginImportError extends Error {
   constructor(code) { super('Claude plugin import failed'); this.name = 'ClaudePluginImportError'; this.code = code; }
 }
 const fail = (code) => { throw new ClaudePluginImportError(code); };
-const own = (value, key) => Object.hasOwn(value, key);
-function plain(value, keys) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
-  return Reflect.ownKeys(value).every((key) => typeof key === 'string' && keys.has(key) && Object.hasOwn(Object.getOwnPropertyDescriptor(value, key), 'value'));
+function configuredSource(sourceKey) {
+  if (typeof sourceKey !== 'string' || !SOURCE_KEY.test(sourceKey)) fail('INVALID_SOURCE_KEY');
+  const source = getPromptPackageSyncSource(sourceKey);
+  if (!source) fail('SOURCE_NOT_CONFIGURED');
+  if (!source.enabled) fail('SOURCE_DISABLED');
+  return source;
 }
+function sourceIdentity(source) { return { provider: 'github', repository: source.repository, ref: source.sourceRef }; }
 function root(value) {
-  if (value === undefined) return undefined;
-  if (value === '') return '';
-  if (typeof value !== 'string' || value.length > 384 || value.includes('\\') || value.startsWith('/') || value.split('/').some((x) => !x || x === '.' || x === '..')) fail('INVALID_PLUGIN_ROOT');
+  if (typeof value !== 'string' || value.length > 384 || value.includes('\\') || value.startsWith('/') || value.split('/').some((part) => !part || part === '.' || part === '..')) fail('INVALID_PLUGIN_ROOT');
   return value;
 }
-function pinAndSource(sourcePin) {
-  let pin;
-  try { pin = normalizePromptPackageSourcePin(sourcePin); } catch { fail('INVALID_SOURCE_PIN'); }
-  const configured = getPromptPackageSyncSource(`github:${pin.repository}@${pin.ref}`);
-  if (!configured) fail('SOURCE_NOT_CONFIGURED');
-  if (!configured.enabled) fail('SOURCE_DISABLED');
-  if (configured.provider !== 'github' || configured.repository !== pin.repository || configured.sourceRef !== pin.ref) fail('SOURCE_MISMATCH');
-  return pin;
+function safeId(value) {
+  const id = String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!id) fail('INVALID_PLUGIN_CONTENT');
+  return id;
 }
-async function discover(input) {
-  const pluginRoot = root(input.pluginRoot);
-  const paths = await fetchPinnedGithubTreePaths({ sourcePin: input.sourcePin, fetchImpl: input.fetchImpl });
-  const descriptorPaths = paths.filter((path) => path === '.claude-plugin/plugin.json' || path.endsWith('/.claude-plugin/plugin.json'));
-  const selectedDescriptors = descriptorPaths.filter((path) => {
-    const candidate = path === '.claude-plugin/plugin.json' ? '' : path.slice(0, -'/.claude-plugin/plugin.json'.length);
-    return pluginRoot === undefined || candidate === pluginRoot;
-  });
-  if (!selectedDescriptors.length) fail('DESCRIPTOR_NOT_FOUND');
-  const allRoots = descriptorPaths.map((path) => path === '.claude-plugin/plugin.json' ? '' : path.slice(0, -'/.claude-plugin/plugin.json'.length));
-  const selectedRoots = selectedDescriptors.map((path) => path === '.claude-plugin/plugin.json' ? '' : path.slice(0, -'/.claude-plugin/plugin.json'.length));
-  const ownsPath = (candidateRoot, candidatePath) => {
+async function discover(sourceKey, fetchImpl) {
+  const source = configuredSource(sourceKey);
+  let sourcePin;
+  try { sourcePin = await resolveGithubRefToCommit({ source: sourceIdentity(source), fetchImpl }); } catch { fail('REMOTE_FETCH_FAILED'); }
+  let paths;
+  try { paths = await fetchPinnedGithubTreePaths({ sourcePin, fetchImpl }); } catch { fail('REMOTE_FETCH_FAILED'); }
+  const descriptors = paths.filter((path) => path === '.claude-plugin/plugin.json' || path.endsWith('/.claude-plugin/plugin.json'));
+  if (!descriptors.length) fail('DESCRIPTOR_NOT_FOUND');
+  const roots = descriptors.map((path) => path === '.claude-plugin/plugin.json' ? '' : path.slice(0, -'/.claude-plugin/plugin.json'.length));
+  const ownsSkill = (candidateRoot, candidatePath) => {
     const prefix = candidateRoot ? `${candidateRoot}/` : '';
     if (!(candidatePath === `${prefix}SKILL.md` || (candidatePath.startsWith(prefix) && candidatePath.endsWith('/SKILL.md')))) return false;
-    return !allRoots.some((nestedRoot) => nestedRoot !== candidateRoot && nestedRoot !== '' && nestedRoot.startsWith(prefix) && candidatePath.startsWith(`${nestedRoot}/`));
+    return !roots.some((nested) => nested !== candidateRoot && nested !== '' && nested.startsWith(prefix) && candidatePath.startsWith(`${nested}/`));
   };
-  // Descendant descriptors are fetched solely as ownership boundaries; their content
-  // cannot become an import artifact for the selected parent candidate.
-  const needed = new Set(selectedDescriptors);
-  for (const candidateRoot of selectedRoots) {
+  const needed = new Set(descriptors);
+  for (const candidateRoot of roots) {
     const prefix = candidateRoot ? `${candidateRoot}/` : '';
-    for (const descriptorPath of descriptorPaths) {
-      const descriptorRoot = descriptorPath === '.claude-plugin/plugin.json' ? '' : descriptorPath.slice(0, -'/.claude-plugin/plugin.json'.length);
-      if (descriptorRoot !== candidateRoot && descriptorRoot !== '' && descriptorRoot.startsWith(prefix)) needed.add(descriptorPath);
-    }
-    for (const candidatePath of paths) if (candidatePath === `${prefix}.mcp.json` || ownsPath(candidateRoot, candidatePath)) needed.add(candidatePath);
+    for (const path of paths) if (path === `${prefix}.mcp.json` || ownsSkill(candidateRoot, path)) needed.add(path);
   }
   if (needed.size > MAX_PLUGIN_FILES) fail('TOO_MANY_PLUGIN_FILES');
   let fetched;
-  try { fetched = await fetchPinnedGithubPromptFiles({ sourcePin: input.sourcePin, paths: [...needed], fetchImpl: input.fetchImpl }); } catch { fail('REMOTE_FETCH_FAILED'); }
-  let result;
-  try { result = discoverClaudePluginManifests({ sourcePin: input.sourcePin, files: fetched.files.map(({ path, content, contentHash }) => ({ path, content, contentHash })) }); } catch { fail('INVALID_PLUGIN_CONTENT'); }
-  const manifests = result.manifests.filter((manifest) => selectedRoots.includes(manifest.metadata.claudePlugin?.root));
-  if (manifests.length !== selectedRoots.length) fail('INVALID_PLUGIN_CONTENT');
-  return { fetched, manifests, roots: selectedRoots };
+  try { fetched = await fetchPinnedGithubPromptFiles({ sourcePin, paths: [...needed], fetchImpl }); } catch { fail('REMOTE_FETCH_FAILED'); }
+  let discovered;
+  try { discovered = discoverClaudePluginManifests({ sourcePin, files: fetched.files.map(({ path, content, contentHash }) => ({ path, content, contentHash })) }); } catch { fail('INVALID_PLUGIN_CONTENT'); }
+  return { source, sourcePin, fetched, manifests: discovered.manifests };
 }
 
-export async function previewClaudePluginImport(input) {
-  if (!plain(input, PREVIEW_KEYS) || !own(input, 'sourcePin') || typeof input.fetchImpl !== 'function') fail('INVALID_INPUT');
-  const sourcePin = pinAndSource(input.sourcePin);
-  const result = await discover({ sourcePin, pluginRoot: input.pluginRoot, fetchImpl: input.fetchImpl });
-  const candidates = result.roots.map((pluginRoot) => ({ pluginRoot, manifest: result.manifests.find((manifest) => manifest.metadata.claudePlugin?.root === pluginRoot) })).filter((candidate) => candidate.manifest);
-  if (!candidates.length) fail('INVALID_PLUGIN_CONTENT');
-  return Object.freeze({ sourcePin: Object.freeze({ ...sourcePin }), candidates: Object.freeze(candidates) });
+/** Read-only discovery: configured source is the sole input identity. */
+export async function discoverClaudePluginsFromSource(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((key) => !['sourceKey', 'fetchImpl'].includes(key)) || typeof input.fetchImpl !== 'function') fail('INVALID_INPUT');
+  const result = await discover(input.sourceKey, input.fetchImpl);
+  return Object.freeze({ sourceKey: input.sourceKey, resolvedCommit: result.sourcePin.commit, candidates: result.manifests.map((manifest) => ({ pluginRoot: manifest.metadata.claudePlugin.root, manifest })) });
 }
 
-export async function importClaudePluginFromPreview(input) {
-  if (!plain(input, IMPORT_KEYS) || !['sourcePin', 'pluginRoot', 'package', 'version', 'documentKey', 'artifactMappings', 'fetchImpl'].every((key) => own(input, key)) || typeof input.fetchImpl !== 'function') fail('INVALID_INPUT');
-  const sourcePin = pinAndSource(input.sourcePin);
+/** Imports one discovered candidate and creates its future ref-following sync job. */
+export async function importClaudePluginFromSource(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((key) => !['sourceKey', 'pluginRoot', 'documentKey', 'actor', 'fetchImpl'].includes(key)) || typeof input.fetchImpl !== 'function' || typeof input.documentKey !== 'string' || !input.documentKey.trim()) fail('INVALID_INPUT');
+  const result = await discover(input.sourceKey, input.fetchImpl);
   const pluginRoot = root(input.pluginRoot);
-  const result = await discover({ sourcePin, pluginRoot, fetchImpl: input.fetchImpl });
-  if (result.roots.length !== 1 || result.manifests.length !== 1) fail('INVALID_SELECTION');
-  const manifest = result.manifests[0];
-  const declaredPaths = new Set(manifest.skills.map((skill) => skill.path));
-  const files = result.fetched.files.filter((file) => declaredPaths.has(file.path)).map(({ path, content }) => ({ path, content }));
+  const manifest = result.manifests.find((item) => item.metadata.claudePlugin.root === pluginRoot);
+  if (!manifest) fail('INVALID_SELECTION');
+  const packageKey = safeId(manifest.metadata.claudePlugin.name);
+  const skills = manifest.skills;
+  if (!skills.length) fail('INVALID_PLUGIN_CONTENT');
+  const files = result.fetched.files.filter((file) => skills.some((skill) => skill.path === file.path)).map(({ path, content }) => ({ path, content }));
+  const artifactMappings = skills.map((skill, position) => ({ artifactKey: `${safeId(skill.path.slice(0, -'/SKILL.md'.length))}-skill`, blockKey: `${packageKey}-${safeId(skill.key)}`, blockType: 'text', included: true, position, metadata: {} }));
+  let staged;
   try {
-    return stagePinnedGithubPromptPackage({
-      sourcePin,
-      package: { ...input.package, source: 'github', repository: sourcePin.repository },
-      version: { ...input.version, sourceCommit: sourcePin.commit, sourceRef: sourcePin.ref, manifest },
-      files,
-      documentKey: input.documentKey,
-      artifactMappings: input.artifactMappings,
-      ...(own(input, 'details') ? { details: { ...input.details, origin: 'claude_plugin_discovery' } } : { details: { origin: 'claude_plugin_discovery' } }),
-      ...(own(input, 'actor') ? { actor: input.actor } : {}),
-    });
+    staged = stagePinnedGithubPromptPackage({ sourcePin: result.sourcePin, package: { packageKey, source: 'github', repository: result.sourcePin.repository, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered', sourceCommit: result.sourcePin.commit, sourceRef: result.sourcePin.ref, manifest }, files, documentKey: input.documentKey.trim(), artifactMappings, details: { origin: 'claude_plugin_source_import' }, ...(input.actor ? { actor: input.actor } : {}) });
   } catch { fail('STAGING_FAILED'); }
+  try {
+    upsertPromptPackageSyncJob({ sourceKey: input.sourceKey, enabled: true, intervalSeconds: 3600, descriptor: { schemaVersion: 1, sourcePin: result.sourcePin, manifestPath: pluginRoot ? `${pluginRoot}/.claude-plugin/plugin.json` : '.claude-plugin/plugin.json', artifactPaths: skills.map((skill) => skill.path) }, package: { packageKey, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered' }, documentKey: input.documentKey.trim(), artifactMappings, details: { origin: 'claude_plugin_source_import' }, ...(input.actor ? { createdBy: input.actor } : {}) });
+  } catch { fail('JOB_FAILED'); }
+  return { ...staged, sourceKey: input.sourceKey, resolvedCommit: result.sourcePin.commit };
 }

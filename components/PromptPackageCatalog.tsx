@@ -1,5 +1,5 @@
 import React from 'react';
-import { activatePromptPackage, createGithubPrivateAccessRequest, decideGithubPrivateAccessRequest, deactivatePromptPackage, deletePromptPackageSyncJob, getPromptPackageDetail, importClaudePluginFromPreview, listGithubPrivateAccessEvents, listGithubPrivateAccessRequests, listPromptPackages, listPromptPackageSyncJobs, listPromptPackageSyncSources, previewClaudePluginImport, revokeGithubPrivateAccessRequest, rollbackPromptPackage, syncPinnedGithubPromptPackageManually, upsertPromptPackageSyncJob, upsertPromptPackageSyncSource, type ClaudePluginImportCandidate, type GithubPrivateAccessEvent, type GithubPrivateAccessRequest, type PromptPackageManualSyncRequest, type PromptPackageSyncJob, type PromptPackageSyncSource, type UpsertPromptPackageSyncJobRequest } from '../services/localApiService';
+import { activatePromptPackage, createGithubPrivateAccessRequest, decideGithubPrivateAccessRequest, deactivatePromptPackage, deletePromptPackageSyncJob, discoverClaudePluginsFromSource, getPromptPackageDetail, importClaudePluginFromSource, listGithubPrivateAccessEvents, listGithubPrivateAccessRequests, listPromptPackages, listPromptPackageSyncJobs, listPromptPackageSyncSources, revokeGithubPrivateAccessRequest, rollbackPromptPackage, syncPinnedGithubPromptPackageManually, upsertPromptPackageSyncJob, upsertPromptPackageSyncSource, type ClaudePluginImportCandidate, type GithubPrivateAccessEvent, type GithubPrivateAccessRequest, type PromptPackageManualSyncRequest, type PromptPackageSyncJob, type PromptPackageSyncSource, type UpsertPromptPackageSyncJobRequest } from '../services/localApiService';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -74,7 +74,7 @@ const PromptPackageCatalog: React.FC = () => {
   const [syncJobStatus, setSyncJobStatus] = React.useState('');
   const [syncJobAction, setSyncJobAction] = React.useState('');
   const [syncJobForm, setSyncJobForm] = React.useState({ intervalSeconds: '3600', enabled: true });
-  const [claudeImportForm, setClaudeImportForm] = React.useState({ repository: '', ref: '', commit: '', pluginRoot: '', packageKey: '', documentKey: '' });
+  const [claudeImportForm, setClaudeImportForm] = React.useState({ sourceKey: '', documentKey: '' });
   const [claudeCandidates, setClaudeCandidates] = React.useState<ClaudePluginImportCandidate[]>([]);
   const [selectedClaudeRoot, setSelectedClaudeRoot] = React.useState<string | null>(null);
   const [claudeImportError, setClaudeImportError] = React.useState('');
@@ -386,27 +386,24 @@ const PromptPackageCatalog: React.FC = () => {
     }
   };
 
-  const safeId = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   const previewClaudePlugin = async () => {
+    if (!claudeImportForm.sourceKey) return;
     setClaudeImportAction('preview'); setClaudeImportError(''); setClaudeImportStatus(''); setClaudeCandidates([]); setSelectedClaudeRoot(null);
     try {
-      const sourcePin = { provider: 'github' as const, repository: claudeImportForm.repository.trim(), ref: claudeImportForm.ref.trim(), commit: claudeImportForm.commit.trim() };
-      const result = await previewClaudePluginImport({ sourcePin, ...(claudeImportForm.pluginRoot.trim() ? { pluginRoot: claudeImportForm.pluginRoot.trim() } : {}) });
+      const result = await discoverClaudePluginsFromSource(claudeImportForm.sourceKey);
       setClaudeCandidates(result.candidates); if (result.candidates.length === 1) setSelectedClaudeRoot(result.candidates[0].pluginRoot);
-    } catch (cause) { setClaudeImportError(cause instanceof Error ? cause.message : 'Claude plugin preview failed.'); }
+      setClaudeImportStatus(`Resolved ${result.resolvedCommit}. Select a discovered plugin to stage it.`);
+    } catch (cause) { setClaudeImportError(cause instanceof Error ? cause.message : 'Claude plugin discovery failed.'); }
     finally { setClaudeImportAction(''); }
   };
   const importClaudePlugin = async () => {
     const candidate = claudeCandidates.find(item => item.pluginRoot === selectedClaudeRoot);
-    if (!candidate) return;
+    if (!candidate || !claudeImportForm.sourceKey || !claudeImportForm.documentKey.trim()) return;
     setClaudeImportAction('import'); setClaudeImportError(''); setClaudeImportStatus('');
     try {
-      const sourcePin = { provider: 'github' as const, repository: claudeImportForm.repository.trim(), ref: claudeImportForm.ref.trim(), commit: claudeImportForm.commit.trim() };
-      const packageKey = claudeImportForm.packageKey.trim() || safeId(candidate.manifest.metadata?.claudePlugin?.name || 'claude-plugin');
-      const mappings = candidate.manifest.skills.map((skill, position) => ({ artifactKey: `${safeId(skill.path.slice(0, -'/SKILL.md'.length))}-skill`, blockKey: `${packageKey}-${safeId(skill.key)}`, blockType: 'text' as const, included: true, position, metadata: {} }));
-      const result = await importClaudePluginFromPreview({ sourcePin, pluginRoot: candidate.pluginRoot, package: { packageKey, metadata: {} }, version: { version: candidate.manifest.metadata?.claudePlugin?.version || 'discovered' }, documentKey: claudeImportForm.documentKey.trim(), artifactMappings: mappings });
-      setClaudeImportStatus(result.changed ? 'Plugin staged. It is not activated and no agent access was granted.' : 'Matching staged plugin already exists; it remains inactive.');
-      await loadPackages();
+      const result = await importClaudePluginFromSource(claudeImportForm.sourceKey, { pluginRoot: candidate.pluginRoot, documentKey: claudeImportForm.documentKey.trim() });
+      setClaudeImportStatus(`${result.changed ? 'Plugin staged' : 'Matching staged plugin already exists'} at ${result.resolvedCommit}. A sync job was created; activation and agent access remain explicit.`);
+      await Promise.all([loadPackages(), loadSyncJobs(), loadSyncSources()]);
     } catch (cause) { setClaudeImportError(cause instanceof Error ? cause.message : 'Claude plugin import failed.'); }
     finally { setClaudeImportAction(''); }
   };
@@ -447,9 +444,9 @@ const PromptPackageCatalog: React.FC = () => {
       <details open={githubAccessAuditOpen} onToggle={event => setGithubAccessAuditOpen(event.currentTarget.open)} className="rounded-lg border border-emerald-200 dark:border-emerald-900/60 p-3"><summary className="cursor-pointer text-[10px] uppercase font-black text-emerald-700 dark:text-emerald-300 tracking-widest">Authorization audit history (no secrets)</summary><div className="mt-2 space-y-1">{githubAccessLoading && githubAccessEvents.length === 0 ? <div className="text-xs text-slate-500">Loading authorization history...</div> : null}{!githubAccessLoading && githubAccessEvents.length === 0 ? <div className="text-xs text-slate-400">No authorization events.</div> : null}{githubAccessEvents.map(event => <div key={event.id} className="text-[11px] text-slate-600 dark:text-slate-300">{date(event.occurredAt)} · {event.event} · {event.source.repository}@{event.source.ref} · actor {event.actor || 'system'}</div>)}</div></details>
     </section>
     <section className="rounded-xl border border-violet-200 dark:border-violet-900/50 bg-violet-50/50 dark:bg-violet-950/10 p-4 space-y-3" aria-labelledby="claude-plugin-import-heading">
-      <div><h3 id="claude-plugin-import-heading" className="text-xs font-black uppercase text-violet-700 dark:text-violet-300 tracking-widest">Discover Claude plugin from pinned GitHub</h3><p className="text-xs text-violet-800/80 dark:text-violet-200/80 mt-1">Requires an existing enabled source with the exact repository, ref, and commit. Preview is read-only; import only stages Skills. MCP configuration remains inventory-only, inert, and non-executable.</p></div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">{(['repository', 'ref', 'commit', 'pluginRoot', 'packageKey', 'documentKey'] as const).map(key => <label key={key} className="text-[10px] font-bold text-slate-500">{key}<input value={claudeImportForm[key]} onChange={event => setClaudeImportForm(previous => ({ ...previous, [key]: event.target.value }))} className="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-xs dark:text-slate-200" placeholder={key === 'pluginRoot' ? 'Optional, e.g. plugins/sams-copilot' : key === 'packageKey' ? 'Optional package key' : key === 'documentKey' ? 'Existing prompt document key' : ''} required={key === 'repository' || key === 'ref' || key === 'commit' || key === 'documentKey'} /></label>)}</div>
-      <div className="flex gap-2"><button type="button" onClick={() => void previewClaudePlugin()} disabled={!!claudeImportAction || !claudeImportForm.repository.trim() || !claudeImportForm.ref.trim() || !claudeImportForm.commit.trim()} className="text-[10px] px-2 py-1.5 rounded-md bg-violet-700 text-white font-bold disabled:opacity-60">{claudeImportAction === 'preview' ? 'Previewing…' : 'Preview candidates'}</button><button type="button" onClick={() => void importClaudePlugin()} disabled={!!claudeImportAction || !claudeCandidates.some(item => item.pluginRoot === selectedClaudeRoot) || !claudeImportForm.documentKey.trim()} className="text-[10px] px-2 py-1.5 rounded-md border border-violet-400 text-violet-800 dark:text-violet-200 font-bold disabled:opacity-60">{claudeImportAction === 'import' ? 'Staging…' : 'Stage selected plugin'}</button></div>
+      <div><h3 id="claude-plugin-import-heading" className="text-xs font-black uppercase text-violet-700 dark:text-violet-300 tracking-widest">Discover Claude plugins</h3><p className="text-xs text-violet-800/80 dark:text-violet-200/80 mt-1">Select an enabled configured source. Discovery resolves its ref and is read-only; staging derives the immutable package metadata and creates its sync job. MCP configuration remains inventory-only and inert.</p></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2"><label className="text-[10px] font-bold text-slate-500">Configured source<select value={claudeImportForm.sourceKey} onChange={event => setClaudeImportForm(previous => ({ ...previous, sourceKey: event.target.value }))} className="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-xs dark:text-slate-200"><option value="">Select source…</option>{syncSources.filter(source => source.enabled).map(source => <option key={source.sourceKey} value={source.sourceKey}>{source.repository}@{source.sourceRef}</option>)}</select></label><label className="text-[10px] font-bold text-slate-500">Prompt document key<input value={claudeImportForm.documentKey} onChange={event => setClaudeImportForm(previous => ({ ...previous, documentKey: event.target.value }))} className="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-xs dark:text-slate-200" placeholder="Existing prompt document key" required /></label></div>
+      <div className="flex gap-2"><button type="button" onClick={() => void previewClaudePlugin()} disabled={!!claudeImportAction || !claudeImportForm.sourceKey} className="text-[10px] px-2 py-1.5 rounded-md bg-violet-700 text-white font-bold disabled:opacity-60">{claudeImportAction === 'preview' ? 'Discovering…' : 'Discover plugins'}</button><button type="button" onClick={() => void importClaudePlugin()} disabled={!!claudeImportAction || !claudeCandidates.some(item => item.pluginRoot === selectedClaudeRoot) || !claudeImportForm.documentKey.trim()} className="text-[10px] px-2 py-1.5 rounded-md border border-violet-400 text-violet-800 dark:text-violet-200 font-bold disabled:opacity-60">{claudeImportAction === 'import' ? 'Staging…' : 'Stage selected plugin'}</button></div>
       {claudeImportError ? <div className="text-xs text-red-500" role="alert">{claudeImportError}</div> : null}{claudeImportStatus ? <div className="text-xs text-emerald-700 dark:text-emerald-300" role="status">{claudeImportStatus}</div> : null}
       {claudeCandidates.map(candidate => <label key={candidate.pluginRoot} className="block rounded-lg border border-violet-200 dark:border-violet-900 p-2 text-xs"><input type="radio" name="claude-plugin-candidate" checked={selectedClaudeRoot === candidate.pluginRoot} onChange={() => setSelectedClaudeRoot(candidate.pluginRoot)} className="mr-2" /><b>{candidate.manifest.metadata?.claudePlugin?.name || 'Claude plugin'}</b> · {candidate.manifest.metadata?.claudePlugin?.version || 'unversioned'} · root {candidate.pluginRoot || '.'}<div className="mt-1 text-slate-500">Skills: {candidate.manifest.skills.map(skill => skill.key).join(', ') || 'none'} · MCP server inventory: {candidate.manifest.metadata?.mcpInventory?.serverKeys?.length || 0} (inert; not imported or executable)</div></label>)}
     </section>
