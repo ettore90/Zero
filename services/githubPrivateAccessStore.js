@@ -1,5 +1,5 @@
 import { getDb, generateId } from '../db.js';
-import { normalizePromptPackageSourcePin } from './promptPackageSourcePolicy.js';
+import { normalizeGithubRepository } from './promptPackageSourcePolicy.js';
 
 const OWN = Object.prototype.hasOwnProperty;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -34,12 +34,17 @@ function purpose(value) {
   if (value !== PURPOSE) fail(`purpose must be ${PURPOSE}`);
   return PURPOSE;
 }
-function sourcePin(value) { return normalizePromptPackageSourcePin(value, 'sourcePin'); }
+function source(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || value.provider !== 'github') fail('source must contain provider, repository, and ref');
+  const repository = normalizeGithubRepository(value.repository, 'source.repository');
+  if (typeof value.ref !== 'string' || !value.ref || /\s/.test(value.ref) || value.ref.split('/').includes('..')) fail('source.ref must be a non-empty ref without whitespace or parent segments');
+  return { provider: 'github', repository, ref: value.ref };
+}
 function toRequest(row) {
   if (!row) return null;
   return {
     id: row.id, ownerUsername: row.owner_username,
-    sourcePin: { provider: 'github', repository: row.source_repository, ref: row.source_ref, commit: row.source_commit },
+    source: { provider: 'github', repository: row.source_repository, ref: row.source_ref },
     purpose: row.purpose, status: row.status, requestedBy: row.requested_by, decidedBy: row.decided_by,
     requestedAt: row.requested_at, decidedAt: row.decided_at, expiresAt: row.expires_at,
     revokedBy: row.revoked_by, revokedAt: row.revoked_at, createdAt: row.created_at, updatedAt: row.updated_at,
@@ -47,31 +52,31 @@ function toRequest(row) {
 }
 function toEvent(row) {
   return { id: row.id, requestId: row.request_id, ownerUsername: row.owner_username,
-    sourcePin: { provider: 'github', repository: row.source_repository, ref: row.source_ref, commit: row.source_commit },
+    source: { provider: 'github', repository: row.source_repository, ref: row.source_ref },
     purpose: row.purpose, event: row.event, actor: row.actor, occurredAt: row.occurred_at };
 }
 function appendEvent(db, request, event, eventActor, occurredAt) {
   db.prepare(`INSERT INTO github_private_access_events
-    (id, request_id, owner_username, source_repository, source_ref, source_commit, purpose, event, actor, occurred_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    (id, request_id, owner_username, source_repository, source_ref, purpose, event, actor, occurred_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(generateId('github_private_access_event'), request.id, request.owner_username, request.source_repository,
-      request.source_ref, request.source_commit, PURPOSE, event, eventActor, occurredAt);
+      request.source_ref, PURPOSE, event, eventActor, occurredAt);
 }
 
 /** Creates an auditable pending request; this store never accepts or persists credential material. */
 export function createGithubPrivateAccessRequest(input) {
-  onlyKeys(input, new Set(['ownerUsername', 'sourcePin', 'purpose', 'requestedBy', 'requestedAt']), 'input');
+  onlyKeys(input, new Set(['ownerUsername', 'source', 'purpose', 'requestedBy', 'requestedAt']), 'input');
   const ownerUsername = identifier(input.ownerUsername, 'ownerUsername');
-  const pin = sourcePin(input.sourcePin); purpose(input.purpose);
+  const requestedSource = source(input.source); purpose(input.purpose);
   const requestedBy = actor(input.requestedBy, 'requestedBy');
   const now = timestamp(input.requestedAt, 'requestedAt', Math.floor(Date.now() / 1000));
   const db = getDb();
   return db.transaction(() => {
     const id = generateId('github_private_access_request');
     db.prepare(`INSERT INTO github_private_access_requests
-      (id, owner_username, source_repository, source_ref, source_commit, purpose, status, requested_by, requested_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`)
-      .run(id, ownerUsername, pin.repository, pin.ref, pin.commit, PURPOSE, requestedBy, now, now, now);
+      (id, owner_username, source_repository, source_ref, purpose, status, requested_by, requested_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`)
+      .run(id, ownerUsername, requestedSource.repository, requestedSource.ref, PURPOSE, requestedBy, now, now, now);
     const row = db.prepare('SELECT * FROM github_private_access_requests WHERE id = ?').get(id);
     appendEvent(db, row, 'requested', requestedBy, now);
     return toRequest(row);
@@ -129,14 +134,14 @@ export function revokeGithubPrivateAccessApproval(input) {
 
 /** Returns the matching approved record only while its exact source pin remains unexpired; otherwise null. */
 export function getEffectiveGithubPrivateAccessAuthorization(input) {
-  onlyKeys(input, new Set(['ownerUsername', 'sourcePin', 'purpose', 'at']), 'input');
+  onlyKeys(input, new Set(['ownerUsername', 'source', 'purpose', 'at']), 'input');
   const ownerUsername = identifier(input.ownerUsername, 'ownerUsername');
-  const pin = sourcePin(input.sourcePin); purpose(input.purpose);
+  const requestedSource = source(input.source); purpose(input.purpose);
   const at = timestamp(input.at, 'at', Math.floor(Date.now() / 1000));
   const row = getDb().prepare(`SELECT * FROM github_private_access_requests
-    WHERE owner_username = ? AND source_repository = ? AND source_ref = ? AND source_commit = ?
+    WHERE owner_username = ? AND source_repository = ? AND source_ref = ?
       AND purpose = 'read_only' AND status = 'approved' AND expires_at > ?
-    ORDER BY expires_at DESC, decided_at DESC, id DESC LIMIT 1`).get(ownerUsername, pin.repository, pin.ref, pin.commit, at);
+    ORDER BY expires_at DESC, decided_at DESC, id DESC LIMIT 1`).get(ownerUsername, requestedSource.repository, requestedSource.ref, at);
   return toRequest(row);
 }
 

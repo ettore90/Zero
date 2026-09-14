@@ -20,8 +20,7 @@ const parseManualSyncRequest = (value: unknown): PromptPackageManualSyncRequest 
 const hasMatchingEnabledSyncSource = (request: PromptPackageManualSyncRequest, sources: PromptPackageSyncSource[]) => sources.some(source => source.enabled
   && source.provider === 'github'
   && source.repository === request.descriptor.sourcePin.repository
-  && source.sourceRef === request.descriptor.sourcePin.ref
-  && source.pinnedCommit === request.descriptor.sourcePin.commit);
+  && source.sourceRef === request.descriptor.sourcePin.ref);
 const asArray = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const text = (value: unknown, fallback = '—') => {
   if (value === null || value === undefined || value === '') return fallback;
@@ -58,7 +57,7 @@ const PromptPackageCatalog: React.FC = () => {
   const [syncSourcesLoading, setSyncSourcesLoading] = React.useState(false);
   const [syncSourceError, setSyncSourceError] = React.useState('');
   const [syncSourceSaving, setSyncSourceSaving] = React.useState(false);
-  const [syncSourceForm, setSyncSourceForm] = React.useState({ repository: '', ref: '', commit: '', enabled: true });
+  const [syncSourceForm, setSyncSourceForm] = React.useState({ repository: '', ref: '', enabled: true });
   const [githubAccessRequests, setGithubAccessRequests] = React.useState<GithubPrivateAccessRequest[]>([]);
   const [githubAccessEvents, setGithubAccessEvents] = React.useState<GithubPrivateAccessEvent[]>([]);
   const [githubAccessLoading, setGithubAccessLoading] = React.useState(false);
@@ -169,7 +168,7 @@ const PromptPackageCatalog: React.FC = () => {
   }, []);
 
   const latestGithubAccessRequest = React.useCallback((source: PromptPackageSyncSource) => githubAccessRequests
-    .filter(request => request.sourcePin.provider === 'github' && request.sourcePin.repository === source.repository && request.sourcePin.ref === source.sourceRef && request.sourcePin.commit === source.pinnedCommit && request.purpose === 'read_only')
+    .filter(request => request.source.provider === 'github' && request.source.repository === source.repository && request.source.ref === source.sourceRef && request.purpose === 'read_only')
     .sort((a, b) => b.requestedAt - a.requestedAt || b.id.localeCompare(a.id))[0], [githubAccessRequests]);
 
   const runGithubAccessAction = async (action: 'request' | 'approve' | 'reject' | 'revoke', source: PromptPackageSyncSource, request?: GithubPrivateAccessRequest) => {
@@ -180,7 +179,7 @@ const PromptPackageCatalog: React.FC = () => {
     setGithubAccessAction(actionKey);
     setGithubAccessError('');
     try {
-      if (action === 'request') await createGithubPrivateAccessRequest({ provider: 'github', repository: source.repository, ref: source.sourceRef, commit: source.pinnedCommit });
+      if (action === 'request') await createGithubPrivateAccessRequest({ provider: 'github', repository: source.repository, ref: source.sourceRef });
       else if (action === 'approve') await decideGithubPrivateAccessRequest(request!.id, 'approved', Math.floor(Date.now() / 1000) + 3600);
       else if (action === 'reject') await decideGithubPrivateAccessRequest(request!.id, 'rejected');
       else await revokeGithubPrivateAccessRequest(request!.id);
@@ -221,21 +220,20 @@ const PromptPackageCatalog: React.FC = () => {
     event.preventDefault();
     const repository = syncSourceForm.repository.trim();
     const ref = syncSourceForm.ref.trim();
-    const commit = syncSourceForm.commit.trim();
     if (syncSourceSaveRequestRef.current) return;
-    if (!repository || !ref || !commit) {
-      setSyncSourceError('Repository, ref, and commit are required.');
+    if (!repository || !ref) {
+      setSyncSourceError('Repository and ref are required.');
       return;
     }
     const requestToken = ++syncSourceSaveRequestRef.current;
     setSyncSourceSaving(true);
     setSyncSourceError('');
     try {
-      await upsertPromptPackageSyncSource({ sourcePin: { provider: 'github', repository, ref, commit }, enabled: syncSourceForm.enabled });
+      await upsertPromptPackageSyncSource({ source: { provider: 'github', repository, ref }, enabled: syncSourceForm.enabled });
       if (requestToken !== syncSourceSaveRequestRef.current) return;
       await loadSyncSources();
     } catch (e: any) {
-      if (requestToken === syncSourceSaveRequestRef.current) setSyncSourceError(e?.message || 'Failed to save pinned GitHub sync source.');
+      if (requestToken === syncSourceSaveRequestRef.current) setSyncSourceError(e?.message || 'Failed to save GitHub sync source.');
     } finally {
       if (requestToken === syncSourceSaveRequestRef.current) {
         syncSourceSaveRequestRef.current = 0;
@@ -425,18 +423,17 @@ const PromptPackageCatalog: React.FC = () => {
       </div>
     </div>
     <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-black/20 p-4 space-y-3" aria-labelledby="pinned-github-sync-source-heading">
-      <div className="flex items-start justify-between gap-3"><div><h3 id="pinned-github-sync-source-heading" className="text-xs font-black uppercase text-slate-600 dark:text-slate-300 tracking-widest">Pinned GitHub sync source</h3><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Configuring a source does not fetch, stage, or activate prompt packages.</p></div><button type="button" onClick={() => void loadSyncSources()} disabled={syncSourcesLoading || syncSourceSaving} className="text-[10px] px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 font-bold text-slate-600 dark:text-slate-300 disabled:opacity-60">{syncSourcesLoading ? 'Refreshing…' : 'Refresh'}</button></div>
+      <div className="flex items-start justify-between gap-3"><div><h3 id="pinned-github-sync-source-heading" className="text-xs font-black uppercase text-slate-600 dark:text-slate-300 tracking-widest">GitHub sync source</h3><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Each sync resolves the ref to an immutable commit. Configuring a source does not fetch, stage, or activate prompt packages.</p></div><button type="button" onClick={() => void loadSyncSources()} disabled={syncSourcesLoading || syncSourceSaving} className="text-[10px] px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 font-bold text-slate-600 dark:text-slate-300 disabled:opacity-60">{syncSourcesLoading ? 'Refreshing…' : 'Refresh'}</button></div>
       <form onSubmit={submitSyncSource} className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
         <label className="text-[10px] font-bold text-slate-500">Provider<input value="GitHub" readOnly aria-readonly="true" className="mt-1 w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400" /></label>
         <label className="text-[10px] font-bold text-slate-500">Repository<input value={syncSourceForm.repository} onChange={e => setSyncSourceForm(previous => ({ ...previous, repository: e.target.value }))} className="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-xs dark:text-slate-200" required /></label>
         <label className="text-[10px] font-bold text-slate-500">Ref<input value={syncSourceForm.ref} onChange={e => setSyncSourceForm(previous => ({ ...previous, ref: e.target.value }))} className="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-xs dark:text-slate-200" required /></label>
-        <label className="text-[10px] font-bold text-slate-500">Commit<input value={syncSourceForm.commit} onChange={e => setSyncSourceForm(previous => ({ ...previous, commit: e.target.value }))} className="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-xs dark:text-slate-200" required /></label>
         <div className="flex items-center gap-3 pb-0.5"><label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300"><input type="checkbox" checked={syncSourceForm.enabled} onChange={e => setSyncSourceForm(previous => ({ ...previous, enabled: e.target.checked }))} />Enabled</label><button type="submit" disabled={syncSourceSaving} className="text-[10px] px-2 py-1.5 rounded-md bg-indigo-600 text-white font-bold disabled:opacity-60">{syncSourceSaving ? 'Saving…' : 'Save source'}</button></div>
       </form>
       {syncSourceError ? <div className="text-xs text-red-500" role="alert">{syncSourceError}</div> : null}
-      {syncSourcesLoading && syncSources.length === 0 ? <div className="text-xs text-slate-500">Loading pinned GitHub sync sources...</div> : null}
-      {!syncSourcesLoading && !syncSourceError && syncSources.length === 0 ? <div className="text-xs text-slate-400">No pinned GitHub sync sources configured.</div> : null}
-      {syncSources.length > 0 ? <div className="space-y-1">{syncSources.map(source => <div key={source.sourceKey} className="grid grid-cols-1 md:grid-cols-3 gap-x-3 gap-y-1 rounded-lg border border-slate-200 dark:border-slate-700 p-2 text-[11px] text-slate-600 dark:text-slate-300"><div><b>Key:</b> {source.sourceKey}</div><div><b>Repository:</b> {source.repository}</div><div><b>Ref:</b> {source.sourceRef}</div><div><b>Commit:</b> {source.pinnedCommit}</div><div><b>Enabled:</b> {source.enabled ? 'Yes' : 'No'}</div><div><b>Last sync:</b> {date(source.lastSyncAt)}</div></div>)}</div> : null}
+      {syncSourcesLoading && syncSources.length === 0 ? <div className="text-xs text-slate-500">Loading GitHub sync sources...</div> : null}
+      {!syncSourcesLoading && !syncSourceError && syncSources.length === 0 ? <div className="text-xs text-slate-400">No GitHub sync sources configured.</div> : null}
+      {syncSources.length > 0 ? <div className="space-y-1">{syncSources.map(source => <div key={source.sourceKey} className="grid grid-cols-1 md:grid-cols-3 gap-x-3 gap-y-1 rounded-lg border border-slate-200 dark:border-slate-700 p-2 text-[11px] text-slate-600 dark:text-slate-300"><div><b>Key:</b> {source.sourceKey}</div><div><b>Repository:</b> {source.repository}</div><div><b>Ref:</b> {source.sourceRef}</div><div><b>Observed SHA:</b> {source.lastSeenCommit || '—'}</div><div><b>Staged SHA:</b> {source.lastStagedCommit || '—'}</div><div><b>Enabled:</b> {source.enabled ? 'Yes' : 'No'}</div><div><b>Last sync:</b> {date(source.lastSyncAt)}</div></div>)}</div> : null}
     </section>
     <section className="rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/50 dark:bg-emerald-950/10 p-4 space-y-3" aria-labelledby="github-private-read-access-heading">
       <div className="flex items-start justify-between gap-3"><div><h3 id="github-private-read-access-heading" className="text-xs font-black uppercase text-emerald-700 dark:text-emerald-300 tracking-widest">Private GitHub read authorization</h3><p className="text-xs text-emerald-800/80 dark:text-emerald-200/80 mt-1">A decision only permits use of an external credential already available at runtime. No token is requested or shown; if that secret is unavailable, access remains closed and sync fails.</p></div><button type="button" onClick={() => void loadGithubAccess()} disabled={githubAccessLoading || !!githubAccessAction} className="text-[10px] px-2 py-1 rounded-md border border-emerald-300 dark:border-emerald-800 font-bold text-emerald-700 dark:text-emerald-300 disabled:opacity-60">{githubAccessLoading ? 'Refreshing…' : 'Refresh'}</button></div>
@@ -445,9 +442,9 @@ const PromptPackageCatalog: React.FC = () => {
         const request = latestGithubAccessRequest(source);
         const actionKey = (action: string) => `${action}:${request?.id || source.sourceKey}`;
         const status = request?.status || 'not requested';
-        return <div key={source.sourceKey} className="rounded-lg border border-emerald-200 dark:border-emerald-900/60 p-3 text-xs space-y-2"><div className="flex flex-wrap items-center justify-between gap-2"><div><b>{source.repository}</b> · {source.sourceRef} · {source.pinnedCommit}</div><span className="uppercase font-bold text-[10px] text-emerald-700 dark:text-emerald-300">{status}</span></div><div className="text-[11px] text-slate-500 dark:text-slate-400">Latest request: {request ? date(request.requestedAt) : '—'}{request?.status === 'approved' ? ` · expires ${date(request.expiresAt)}` : ''}</div><div className="flex flex-wrap gap-2">{!request || request.status !== 'pending' ? <button type="button" onClick={() => void runGithubAccessAction('request', source)} disabled={!!githubAccessAction} className="text-[10px] px-2 py-1 rounded-md bg-emerald-700 text-white font-bold disabled:opacity-60">{githubAccessAction === actionKey('request') ? 'Requesting…' : 'Request read access'}</button> : null}{request?.status === 'pending' ? <><button type="button" onClick={() => void runGithubAccessAction('approve', source, request)} disabled={!!githubAccessAction} className="text-[10px] px-2 py-1 rounded-md bg-emerald-700 text-white font-bold disabled:opacity-60">{githubAccessAction === actionKey('approve') ? 'Approving…' : 'Approve (1 hour)'}</button><button type="button" onClick={() => void runGithubAccessAction('reject', source, request)} disabled={!!githubAccessAction} className="text-[10px] px-2 py-1 rounded-md border border-red-300 text-red-600 font-bold disabled:opacity-60">{githubAccessAction === actionKey('reject') ? 'Rejecting…' : 'Reject'}</button></> : null}{request?.status === 'approved' ? <button type="button" onClick={() => void runGithubAccessAction('revoke', source, request)} disabled={!!githubAccessAction} className="text-[10px] px-2 py-1 rounded-md border border-red-300 text-red-600 font-bold disabled:opacity-60">{githubAccessAction === actionKey('revoke') ? 'Revoking…' : 'Revoke'}</button> : null}</div></div>;
+        return <div key={source.sourceKey} className="rounded-lg border border-emerald-200 dark:border-emerald-900/60 p-3 text-xs space-y-2"><div className="flex flex-wrap items-center justify-between gap-2"><div><b>{source.repository}</b> · {source.sourceRef} · observed {source.lastSeenCommit || '—'} · staged {source.lastStagedCommit || '—'}</div><span className="uppercase font-bold text-[10px] text-emerald-700 dark:text-emerald-300">{status}</span></div><div className="text-[11px] text-slate-500 dark:text-slate-400">Latest request: {request ? date(request.requestedAt) : '—'}{request?.status === 'approved' ? ` · expires ${date(request.expiresAt)}` : ''}</div><div className="flex flex-wrap gap-2">{!request || request.status !== 'pending' ? <button type="button" onClick={() => void runGithubAccessAction('request', source)} disabled={!!githubAccessAction} className="text-[10px] px-2 py-1 rounded-md bg-emerald-700 text-white font-bold disabled:opacity-60">{githubAccessAction === actionKey('request') ? 'Requesting…' : 'Request read access'}</button> : null}{request?.status === 'pending' ? <><button type="button" onClick={() => void runGithubAccessAction('approve', source, request)} disabled={!!githubAccessAction} className="text-[10px] px-2 py-1 rounded-md bg-emerald-700 text-white font-bold disabled:opacity-60">{githubAccessAction === actionKey('approve') ? 'Approving…' : 'Approve (1 hour)'}</button><button type="button" onClick={() => void runGithubAccessAction('reject', source, request)} disabled={!!githubAccessAction} className="text-[10px] px-2 py-1 rounded-md border border-red-300 text-red-600 font-bold disabled:opacity-60">{githubAccessAction === actionKey('reject') ? 'Rejecting…' : 'Reject'}</button></> : null}{request?.status === 'approved' ? <button type="button" onClick={() => void runGithubAccessAction('revoke', source, request)} disabled={!!githubAccessAction} className="text-[10px] px-2 py-1 rounded-md border border-red-300 text-red-600 font-bold disabled:opacity-60">{githubAccessAction === actionKey('revoke') ? 'Revoking…' : 'Revoke'}</button> : null}</div></div>;
       })}</div>}
-      <details open={githubAccessAuditOpen} onToggle={event => setGithubAccessAuditOpen(event.currentTarget.open)} className="rounded-lg border border-emerald-200 dark:border-emerald-900/60 p-3"><summary className="cursor-pointer text-[10px] uppercase font-black text-emerald-700 dark:text-emerald-300 tracking-widest">Authorization audit history (no secrets)</summary><div className="mt-2 space-y-1">{githubAccessLoading && githubAccessEvents.length === 0 ? <div className="text-xs text-slate-500">Loading authorization history...</div> : null}{!githubAccessLoading && githubAccessEvents.length === 0 ? <div className="text-xs text-slate-400">No authorization events.</div> : null}{githubAccessEvents.map(event => <div key={event.id} className="text-[11px] text-slate-600 dark:text-slate-300">{date(event.occurredAt)} · {event.event} · {event.sourcePin.repository}@{event.sourcePin.ref} · actor {event.actor || 'system'}</div>)}</div></details>
+      <details open={githubAccessAuditOpen} onToggle={event => setGithubAccessAuditOpen(event.currentTarget.open)} className="rounded-lg border border-emerald-200 dark:border-emerald-900/60 p-3"><summary className="cursor-pointer text-[10px] uppercase font-black text-emerald-700 dark:text-emerald-300 tracking-widest">Authorization audit history (no secrets)</summary><div className="mt-2 space-y-1">{githubAccessLoading && githubAccessEvents.length === 0 ? <div className="text-xs text-slate-500">Loading authorization history...</div> : null}{!githubAccessLoading && githubAccessEvents.length === 0 ? <div className="text-xs text-slate-400">No authorization events.</div> : null}{githubAccessEvents.map(event => <div key={event.id} className="text-[11px] text-slate-600 dark:text-slate-300">{date(event.occurredAt)} · {event.event} · {event.source.repository}@{event.source.ref} · actor {event.actor || 'system'}</div>)}</div></details>
     </section>
     <section className="rounded-xl border border-violet-200 dark:border-violet-900/50 bg-violet-50/50 dark:bg-violet-950/10 p-4 space-y-3" aria-labelledby="claude-plugin-import-heading">
       <div><h3 id="claude-plugin-import-heading" className="text-xs font-black uppercase text-violet-700 dark:text-violet-300 tracking-widest">Discover Claude plugin from pinned GitHub</h3><p className="text-xs text-violet-800/80 dark:text-violet-200/80 mt-1">Requires an existing enabled source with the exact repository, ref, and commit. Preview is read-only; import only stages Skills. MCP configuration remains inventory-only, inert, and non-executable.</p></div>

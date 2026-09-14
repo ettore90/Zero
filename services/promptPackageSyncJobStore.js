@@ -126,7 +126,7 @@ export function upsertPromptPackageSyncJob(input) {
     const source = db.prepare('SELECT * FROM prompt_package_sync_sources WHERE source_key = ?').get(job.sourceKey);
     if (!source) fail('sourceKey does not exist');
     const pin = job.descriptor.value.sourcePin;
-    if (source.provider !== pin.provider || source.repository !== pin.repository || source.source_ref !== pin.ref || source.pinned_commit !== pin.commit) fail('source configuration does not match descriptor pin');
+    if (source.provider !== pin.provider || source.repository !== pin.repository || source.source_ref !== pin.ref) fail('source configuration does not match descriptor source');
     const existing = getRow(job.sourceKey);
     if (!existing) {
       const id = generateId('prompt_package_sync_job');

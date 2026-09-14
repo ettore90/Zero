@@ -35,6 +35,8 @@ export function initDb(dbPath) {
   _db.pragma('foreign_keys = ON');
   _ensureRuntimeSchema(_db);
   _migratePluginAccessGrants(_db);
+  _migrateGithubPrivateAccessToRefScope(_db);
+  _migratePromptPackageSyncSourcesToRefs(_db);
   _createSchema(_db);
   _ensureRuntimeSchema(_db);
   console.log(`[db] SQLite initialized at ${dbPath}`);
@@ -563,7 +565,6 @@ function _createSchema(db) {
       owner_username TEXT NOT NULL,
       source_repository TEXT NOT NULL,
       source_ref TEXT NOT NULL,
-      source_commit TEXT NOT NULL,
       purpose TEXT NOT NULL CHECK (purpose = 'read_only'),
       status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'revoked')),
       requested_by TEXT,
@@ -581,7 +582,7 @@ function _createSchema(db) {
         OR (status = 'revoked' AND decided_at IS NOT NULL AND expires_at IS NOT NULL AND revoked_at IS NOT NULL))
     );
     CREATE INDEX IF NOT EXISTS idx_github_private_access_requests_owner ON github_private_access_requests(owner_username, requested_at DESC, id DESC);
-    CREATE INDEX IF NOT EXISTS idx_github_private_access_requests_effective ON github_private_access_requests(owner_username, source_repository, source_ref, source_commit, purpose, status, expires_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_github_private_access_requests_effective ON github_private_access_requests(owner_username, source_repository, source_ref, purpose, status, expires_at DESC);
 
     CREATE TABLE IF NOT EXISTS github_private_access_events (
       id TEXT PRIMARY KEY,
@@ -589,7 +590,6 @@ function _createSchema(db) {
       owner_username TEXT NOT NULL,
       source_repository TEXT NOT NULL,
       source_ref TEXT NOT NULL,
-      source_commit TEXT NOT NULL,
       purpose TEXT NOT NULL CHECK (purpose = 'read_only'),
       event TEXT NOT NULL CHECK (event IN ('requested', 'approved', 'rejected', 'revoked')),
       actor TEXT,
@@ -606,7 +606,6 @@ function _createSchema(db) {
       provider TEXT NOT NULL CHECK (provider = 'github'),
       repository TEXT NOT NULL,
       source_ref TEXT NOT NULL,
-      pinned_commit TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
       last_seen_commit TEXT,
       last_staged_commit TEXT,
@@ -826,6 +825,80 @@ function _migratePromptPackageSchema(db) {
   } finally {
     if (foreignKeysWereEnabled) db.pragma('foreign_keys = ON');
   }
+}
+
+function _migratePromptPackageSyncSourcesToRefs(db) {
+  const columns = db.prepare('PRAGMA table_info(prompt_package_sync_sources)').all();
+  if (!columns.length || !columns.some((column) => column.name === 'pinned_commit')) return;
+  const foreignKeysWereEnabled = db.pragma('foreign_keys', { simple: true }) === 1;
+  try {
+    if (foreignKeysWereEnabled) db.pragma('foreign_keys = OFF');
+    db.exec('BEGIN IMMEDIATE');
+    db.exec(`ALTER TABLE prompt_package_sync_jobs RENAME TO prompt_package_sync_jobs_legacy;
+      ALTER TABLE prompt_package_sync_sources RENAME TO prompt_package_sync_sources_legacy;
+      CREATE TABLE prompt_package_sync_sources (
+        id TEXT PRIMARY KEY, source_key TEXT NOT NULL UNIQUE, provider TEXT NOT NULL CHECK (provider = 'github'),
+        repository TEXT NOT NULL, source_ref TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+        last_seen_commit TEXT, last_staged_commit TEXT, last_sync_at INTEGER, last_error TEXT,
+        metadata TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL DEFAULT (unixepoch()), updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+      CREATE TABLE prompt_package_sync_jobs (
+        id TEXT PRIMARY KEY, source_key TEXT NOT NULL UNIQUE REFERENCES prompt_package_sync_sources(source_key) ON DELETE CASCADE,
+        enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)), interval_seconds INTEGER NOT NULL CHECK (interval_seconds BETWEEN 60 AND 86400),
+        descriptor TEXT NOT NULL, package TEXT NOT NULL, version TEXT NOT NULL, document_key TEXT NOT NULL, artifact_mappings TEXT NOT NULL,
+        "references" TEXT NOT NULL, details TEXT NOT NULL, created_by TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()), updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+      INSERT INTO prompt_package_sync_sources (id, source_key, provider, repository, source_ref, enabled, last_seen_commit, last_staged_commit, last_sync_at, last_error, metadata, created_at, updated_at)
+        SELECT id, source_key, provider, repository, source_ref, enabled, COALESCE(last_seen_commit, pinned_commit), COALESCE(last_staged_commit, pinned_commit), last_sync_at, last_error, metadata, created_at, updated_at FROM prompt_package_sync_sources_legacy;
+      INSERT INTO prompt_package_sync_jobs SELECT * FROM prompt_package_sync_jobs_legacy;
+      DROP TABLE prompt_package_sync_jobs_legacy; DROP TABLE prompt_package_sync_sources_legacy;
+      CREATE INDEX idx_prompt_package_sync_sources_enabled ON prompt_package_sync_sources(enabled);
+      CREATE INDEX idx_prompt_package_sync_sources_repository_ref ON prompt_package_sync_sources(repository, source_ref);
+      CREATE INDEX idx_prompt_package_sync_sources_updated_at ON prompt_package_sync_sources(updated_at DESC);
+      CREATE INDEX idx_prompt_package_sync_jobs_enabled_updated_at ON prompt_package_sync_jobs(enabled, updated_at DESC);`);
+    const errors = db.prepare('PRAGMA foreign_key_check').all(); if (errors.length) throw new Error(`Cannot migrate prompt package sync sources: foreign_key_check failed (${errors[0].table}).`);
+    db.exec('COMMIT');
+  } catch (error) { try { db.exec('ROLLBACK'); } catch { /* no transaction */ } throw error; }
+  finally { if (foreignKeysWereEnabled) db.pragma('foreign_keys = ON'); }
+}
+
+function _migrateGithubPrivateAccessToRefScope(db) {
+  const columns = db.prepare('PRAGMA table_info(github_private_access_requests)').all();
+  if (!columns.length || !columns.some((column) => column.name === 'source_commit')) return;
+  const foreignKeysWereEnabled = db.pragma('foreign_keys', { simple: true }) === 1;
+  try {
+    if (foreignKeysWereEnabled) db.pragma('foreign_keys = OFF');
+    db.exec('BEGIN IMMEDIATE');
+    db.exec(`ALTER TABLE github_private_access_events RENAME TO github_private_access_events_legacy;
+      ALTER TABLE github_private_access_requests RENAME TO github_private_access_requests_legacy;
+      CREATE TABLE github_private_access_requests (
+        id TEXT PRIMARY KEY, owner_username TEXT NOT NULL, source_repository TEXT NOT NULL, source_ref TEXT NOT NULL,
+        purpose TEXT NOT NULL CHECK (purpose = 'read_only'), status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'revoked')),
+        requested_by TEXT, decided_by TEXT, requested_at INTEGER NOT NULL, decided_at INTEGER, expires_at INTEGER,
+        revoked_by TEXT, revoked_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        CHECK ((status = 'pending' AND decided_at IS NULL AND expires_at IS NULL AND revoked_at IS NULL)
+          OR (status = 'approved' AND decided_at IS NOT NULL AND expires_at IS NOT NULL AND revoked_at IS NULL)
+          OR (status = 'rejected' AND decided_at IS NOT NULL AND expires_at IS NULL AND revoked_at IS NULL)
+          OR (status = 'revoked' AND decided_at IS NOT NULL AND expires_at IS NOT NULL AND revoked_at IS NOT NULL))
+      );
+      CREATE TABLE github_private_access_events (
+        id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES github_private_access_requests(id) ON DELETE CASCADE,
+        owner_username TEXT NOT NULL, source_repository TEXT NOT NULL, source_ref TEXT NOT NULL,
+        purpose TEXT NOT NULL CHECK (purpose = 'read_only'), event TEXT NOT NULL CHECK (event IN ('requested', 'approved', 'rejected', 'revoked')),
+        actor TEXT, occurred_at INTEGER NOT NULL
+      );
+      INSERT INTO github_private_access_requests (id, owner_username, source_repository, source_ref, purpose, status, requested_by, decided_by, requested_at, decided_at, expires_at, revoked_by, revoked_at, created_at, updated_at)
+        SELECT id, owner_username, source_repository, source_ref, purpose, status, requested_by, decided_by, requested_at, decided_at, expires_at, revoked_by, revoked_at, created_at, updated_at FROM github_private_access_requests_legacy;
+      INSERT INTO github_private_access_events (id, request_id, owner_username, source_repository, source_ref, purpose, event, actor, occurred_at)
+        SELECT id, request_id, owner_username, source_repository, source_ref, purpose, event, actor, occurred_at FROM github_private_access_events_legacy;
+      DROP TABLE github_private_access_events_legacy; DROP TABLE github_private_access_requests_legacy;
+      CREATE INDEX idx_github_private_access_requests_owner ON github_private_access_requests(owner_username, requested_at DESC, id DESC);
+      CREATE INDEX idx_github_private_access_requests_effective ON github_private_access_requests(owner_username, source_repository, source_ref, purpose, status, expires_at DESC);
+      CREATE INDEX idx_github_private_access_events_request ON github_private_access_events(request_id, occurred_at ASC, id ASC);
+      CREATE INDEX idx_github_private_access_events_owner ON github_private_access_events(owner_username, occurred_at DESC, id DESC);`);
+    db.exec('COMMIT');
+  } catch (error) { try { db.exec('ROLLBACK'); } catch { /* no transaction */ } throw error; }
+  finally { if (foreignKeysWereEnabled) db.pragma('foreign_keys = ON'); }
 }
 
 function _migratePluginAccessGrants(db) {

@@ -29,7 +29,7 @@ function pinAndSource(sourcePin) {
   const configured = getPromptPackageSyncSource(`github:${pin.repository}@${pin.ref}`);
   if (!configured) fail('SOURCE_NOT_CONFIGURED');
   if (!configured.enabled) fail('SOURCE_DISABLED');
-  if (configured.provider !== 'github' || configured.repository !== pin.repository || configured.sourceRef !== pin.ref || configured.pinnedCommit !== pin.commit) fail('SOURCE_MISMATCH');
+  if (configured.provider !== 'github' || configured.repository !== pin.repository || configured.sourceRef !== pin.ref) fail('SOURCE_MISMATCH');
   return pin;
 }
 async function discover(input) {

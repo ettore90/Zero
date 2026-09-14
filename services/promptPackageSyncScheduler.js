@@ -1,7 +1,7 @@
 import { listPromptPackageSyncJobs } from './promptPackageSyncJobStore.js';
 import { getPromptPackageSyncSource, recordPromptPackageSyncCheckpoint } from './promptPackageSyncConfigStore.js';
 import { syncPinnedGithubPromptPackageManually } from './promptPackageSyncService.js';
-import { normalizePinnedGithubPromptDescriptor } from './pinnedGithubPromptClient.js';
+import { normalizePinnedGithubPromptDescriptor, resolveGithubRefToCommit } from './pinnedGithubPromptClient.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -125,10 +125,11 @@ function canonicalDescriptor(job) {
   }
 }
 
-function safeSyncInput(job, fetchImpl, timeoutMs) {
+function safeSyncInput(job, fetchImpl, timeoutMs, commit) {
   try {
     const descriptor = canonicalDescriptor(job);
-    if (!descriptor) return null;
+    if (!descriptor || typeof commit !== 'string') return null;
+    descriptor.sourcePin.commit = commit;
     const input = {
       descriptor,
       package: ownDataValue(job, 'package'),
@@ -274,7 +275,17 @@ export function createPromptPackageSyncScheduler(options = {}) {
         }
         if (!active(workGeneration)) return false;
         try {
-          const input = safeSyncInput(job, fetchImpl, timeoutMs);
+          const resolved = await resolveGithubRefToCommit({
+            source: { provider: source.provider, repository: source.repository, ref: source.sourceRef },
+            fetchImpl,
+            timeoutMs,
+          });
+          if (!active(workGeneration)) return false;
+          if (source.lastStagedCommit === resolved.commit) {
+            await recordCheckpoint({ sourceKey, lastSeenCommit: resolved.commit, lastSyncAt: nowSeconds, lastError: null });
+            return true;
+          }
+          const input = safeSyncInput(job, fetchImpl, timeoutMs, resolved.commit);
           if (!input) {
             await checkpointFailure(sourceKey, job.intervalSeconds, workGeneration, nowSeconds, 'prompt_package_scheduler_checkpoint_failed');
             return false;

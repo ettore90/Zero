@@ -160,7 +160,7 @@ function classifyImportError(error) {
   return 500;
 }
 
-const SYNC_SOURCE_BODY_KEYS = new Set(['sourcePin', 'enabled', 'metadata']);
+const SYNC_SOURCE_BODY_KEYS = new Set(['source', 'enabled', 'metadata']);
 const MANUAL_SYNC_BODY_KEYS = new Set([
   'descriptor',
   'package',
@@ -324,8 +324,8 @@ function validateSyncSourceBody(body) {
       throw error;
     }
   }
-  if (!Object.prototype.hasOwnProperty.call(body, 'sourcePin')) {
-    const error = new Error('sourcePin is required');
+  if (!Object.prototype.hasOwnProperty.call(body, 'source')) {
+    const error = new Error('source is required');
     error.statusCode = 400;
     throw error;
   }
@@ -347,7 +347,6 @@ function projectSyncSource(source) {
     provider: source.provider,
     repository: source.repository,
     sourceRef: source.sourceRef,
-    pinnedCommit: source.pinnedCommit,
     enabled: source.enabled,
     lastSeenCommit: source.lastSeenCommit,
     lastStagedCommit: source.lastStagedCommit,
@@ -413,8 +412,8 @@ function githubPrivateAccessOperator(req) {
 }
 
 function githubPrivateAccessRequestBody(body) {
-  if (!isPlainObject(body) || Object.keys(body).some((key) => !['sourcePin', 'purpose'].includes(key))
-    || !Object.hasOwn(body, 'sourcePin') || !Object.hasOwn(body, 'purpose')) {
+  if (!isPlainObject(body) || Object.keys(body).some((key) => !['source', 'purpose'].includes(key))
+    || !Object.hasOwn(body, 'source') || !Object.hasOwn(body, 'purpose')) {
     const error = new Error('invalid GitHub private access request');
     error.statusCode = 400;
     throw error;
@@ -449,7 +448,7 @@ router.post('/settings/github-private-access-requests', checkLocalAccess, (req, 
   try {
     const ownerUsername = githubPrivateAccessOwner(req);
     const body = githubPrivateAccessRequestBody(req.body);
-    return res.status(201).json({ request: createGithubPrivateAccessRequest({ ownerUsername, sourcePin: body.sourcePin, purpose: body.purpose, requestedBy: ownerUsername }) });
+    return res.status(201).json({ request: createGithubPrivateAccessRequest({ ownerUsername, source: body.source, purpose: body.purpose, requestedBy: ownerUsername }) });
   } catch (error) { return githubPrivateAccessError(res, error); }
 });
 router.get('/settings/github-private-access-requests', checkLocalAccess, (req, res) => {
@@ -490,7 +489,7 @@ router.post('/settings/prompt-packages/claude-plugin/preview', checkLocalAccess,
     if (typeof globalThis.fetch !== 'function') return res.status(503).json({ error: 'Claude plugin preview is unavailable' });
     const fetchImpl = createGithubPrivateReadFetch({
       ownerUsername: githubPrivateAccessOwner(req),
-      sourcePin: req.body?.sourcePin,
+      source: { provider: 'github', repository: req.body?.sourcePin?.repository, ref: req.body?.sourcePin?.ref },
       fetchImpl: globalThis.fetch,
     });
     const preview = await previewClaudePluginImport({ ...req.body, fetchImpl });
@@ -506,7 +505,7 @@ router.post('/settings/prompt-packages/claude-plugin/import', checkLocalAccess, 
     if (typeof globalThis.fetch !== 'function') return res.status(503).json({ error: 'Claude plugin import is unavailable' });
     const fetchImpl = createGithubPrivateReadFetch({
       ownerUsername: githubPrivateAccessOwner(req),
-      sourcePin: req.body?.sourcePin,
+      source: { provider: 'github', repository: req.body?.sourcePin?.repository, ref: req.body?.sourcePin?.ref },
       fetchImpl: globalThis.fetch,
     });
     const result = await importClaudePluginFromPreview({ ...req.body, actor: githubPrivateAccessOwner(req), fetchImpl });
@@ -670,7 +669,7 @@ router.post('/settings/prompt-package-sync/manual', checkLocalAccess, async (req
       artifactMappings: req.body.artifactMappings,
       fetchImpl: createGithubPrivateReadFetch({
         ownerUsername: githubPrivateAccessOwner(req),
-        sourcePin: req.body.descriptor?.sourcePin,
+        source: { provider: 'github', repository: req.body.descriptor?.sourcePin?.repository, ref: req.body.descriptor?.sourcePin?.ref },
         fetchImpl: globalThis.fetch,
       }),
       ...(Object.hasOwn(req.body, 'timeoutMs') ? { timeoutMs: req.body.timeoutMs } : {}),
@@ -753,7 +752,7 @@ router.put('/settings/prompt-package-sync-sources', checkLocalAccess, (req, res)
   try {
     validateSyncSourceBody(req.body);
     const source = upsertPromptPackageSyncSource({
-      sourcePin: req.body.sourcePin,
+      source: req.body.source,
       ...(Object.prototype.hasOwnProperty.call(req.body, 'enabled') ? { enabled: req.body.enabled } : {}),
       ...(Object.prototype.hasOwnProperty.call(req.body, 'metadata') ? { metadata: req.body.metadata } : {}),
     });
@@ -773,8 +772,7 @@ router.get('/settings/prompt-package-sync-sources', checkLocalAccess, (req, res)
       provider: source.provider,
       repository: source.repository,
       sourceRef: source.sourceRef,
-      pinnedCommit: source.pinnedCommit,
-      enabled: source.enabled,
+        enabled: source.enabled,
       lastSeenCommit: source.lastSeenCommit,
       lastStagedCommit: source.lastStagedCommit,
       lastSyncAt: source.lastSyncAt,

@@ -1,5 +1,5 @@
 import { getEffectiveGithubPrivateAccessAuthorization } from './githubPrivateAccessStore.js';
-import { normalizePromptPackageSourcePin } from './promptPackageSourcePolicy.js';
+import { normalizeGithubRepository } from './promptPackageSourcePolicy.js';
 
 const PURPOSE = 'read_only';
 const USERNAME = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -19,6 +19,13 @@ function requiredUsername(value) {
   return value;
 }
 
+function normalizeSource(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || value.provider !== 'github') fail('ACCESS_DENIED');
+  const repository = normalizeGithubRepository(value.repository, 'source.repository');
+  if (typeof value.ref !== 'string' || !value.ref || /\s/.test(value.ref) || value.ref.split('/').includes('..')) fail('ACCESS_DENIED');
+  return { provider: 'github', repository, ref: value.ref };
+}
+
 function eligibleUrl(input, repository) {
   let url;
   try { url = new URL(input instanceof Request ? input.url : input); } catch { return false; }
@@ -34,17 +41,17 @@ function eligibleUrl(input, repository) {
  */
 export function createGithubPrivateReadFetch(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('ACCESS_DENIED');
-  const { ownerUsername, sourcePin, fetchImpl = globalThis.fetch, at } = input;
+  const { ownerUsername, source, fetchImpl = globalThis.fetch, at } = input;
   const username = requiredUsername(ownerUsername);
-  let pin;
-  try { pin = normalizePromptPackageSourcePin(sourcePin); } catch { fail('ACCESS_DENIED'); }
+  let requestedSource;
+  try { requestedSource = normalizeSource(source); } catch { fail('ACCESS_DENIED'); }
   if (typeof fetchImpl !== 'function') fail('ACCESS_DENIED');
   const token = process.env.ZERO_GREEN_GITHUB_READ_TOKEN;
   if (typeof token !== 'string' || token.length === 0) fail('ACCESS_DENIED');
   // Validate once before returning the wrapper and again for every request.
   // The per-request check makes expiry and revocation take effect immediately.
   try {
-    if (!getEffectiveGithubPrivateAccessAuthorization({ ownerUsername: username, sourcePin: pin, purpose: PURPOSE, ...(at === undefined ? {} : { at }) })) fail('ACCESS_DENIED');
+    if (!getEffectiveGithubPrivateAccessAuthorization({ ownerUsername: username, source: requestedSource, purpose: PURPOSE, ...(at === undefined ? {} : { at }) })) fail('ACCESS_DENIED');
   } catch (error) {
     if (error instanceof GithubPrivateAccessProviderError) throw error;
     fail('ACCESS_DENIED');
@@ -53,10 +60,10 @@ export function createGithubPrivateReadFetch(input) {
   return async function githubPrivateReadFetch(resource, init) {
     let currentAuthorization;
     try {
-      currentAuthorization = getEffectiveGithubPrivateAccessAuthorization({ ownerUsername: username, sourcePin: pin, purpose: PURPOSE });
+      currentAuthorization = getEffectiveGithubPrivateAccessAuthorization({ ownerUsername: username, source: requestedSource, purpose: PURPOSE });
     } catch { fail('ACCESS_DENIED'); }
     if (!currentAuthorization) fail('ACCESS_DENIED');
-    if (!eligibleUrl(resource, pin.repository)) fail('URL_NOT_ALLOWED');
+    if (!eligibleUrl(resource, requestedSource.repository)) fail('URL_NOT_ALLOWED');
     const requestInit = init && typeof init === 'object' ? { ...init } : {};
     const headers = new Headers(resource instanceof Request ? resource.headers : undefined);
     if (requestInit.headers !== undefined) {

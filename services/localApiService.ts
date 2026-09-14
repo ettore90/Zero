@@ -183,7 +183,7 @@ export type GithubPrivateAccessRequestStatus = 'pending' | 'approved' | 'rejecte
 export interface GithubPrivateAccessRequest {
     id: string;
     ownerUsername: string;
-    sourcePin: PinnedGithubPromptSourcePin;
+    source: GithubPromptSource;
     purpose: 'read_only';
     status: GithubPrivateAccessRequestStatus;
     requestedBy: string | null;
@@ -201,15 +201,15 @@ export interface GithubPrivateAccessEvent {
     id: string;
     requestId: string;
     ownerUsername: string;
-    sourcePin: PinnedGithubPromptSourcePin;
+    source: GithubPromptSource;
     purpose: 'read_only';
     event: 'requested' | 'approved' | 'rejected' | 'revoked';
     actor: string | null;
     occurredAt: number;
 }
 
-export async function createGithubPrivateAccessRequest(sourcePin: PinnedGithubPromptSourcePin): Promise<{ request: GithubPrivateAccessRequest }> {
-    return localPost('/api/settings/github-private-access-requests', { sourcePin, purpose: 'read_only' });
+export async function createGithubPrivateAccessRequest(source: GithubPromptSource): Promise<{ request: GithubPrivateAccessRequest }> {
+    return localPost('/api/settings/github-private-access-requests', { source, purpose: 'read_only' });
 }
 
 export async function listGithubPrivateAccessRequests(): Promise<{ requests: GithubPrivateAccessRequest[] }> {
@@ -235,12 +235,17 @@ export interface PinnedGithubPromptDescriptor {
     artifactPaths: string[];
 }
 
+export interface GithubPromptSource {
+    provider: 'github';
+    repository: string;
+    ref: string;
+}
+
 export interface PromptPackageSyncSource {
     sourceKey: string;
     provider: string;
     repository: string;
     sourceRef: string;
-    pinnedCommit: string;
     enabled: boolean;
     lastSeenCommit: string | null;
     lastStagedCommit: string | null;
@@ -250,7 +255,7 @@ export interface PromptPackageSyncSource {
 }
 
 export interface UpsertPromptPackageSyncSourceRequest {
-    sourcePin: PinnedGithubPromptSourcePin;
+    source: GithubPromptSource;
     enabled?: boolean;
     metadata?: Record<string, unknown>;
 }
@@ -324,7 +329,7 @@ export async function listPromptPackageSyncSources(): Promise<{ sources: PromptP
 }
 
 export async function upsertPromptPackageSyncSource(request: UpsertPromptPackageSyncSourceRequest): Promise<{ source: PromptPackageSyncSource }> {
-    const body: UpsertPromptPackageSyncSourceRequest = { sourcePin: request.sourcePin };
+    const body: UpsertPromptPackageSyncSourceRequest = { source: request.source };
     if (request.enabled !== undefined) body.enabled = request.enabled;
     if (request.metadata !== undefined) body.metadata = request.metadata;
     return localPut<{ source: PromptPackageSyncSource }>('/api/settings/prompt-package-sync-sources', body);

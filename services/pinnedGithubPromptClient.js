@@ -3,6 +3,7 @@ import { normalizePromptPackageSourcePin } from './promptPackageSourcePolicy.js'
 
 const INPUT_FIELDS = new Set(['sourcePin', 'paths', 'fetchImpl', 'timeoutMs']);
 const TREE_INPUT_FIELDS = new Set(['sourcePin', 'fetchImpl', 'timeoutMs']);
+const RESOLVE_INPUT_FIELDS = new Set(['source', 'fetchImpl', 'timeoutMs']);
 const MAX_TREE_PATHS = 512;
 const SHA = /^[a-fA-F0-9]{40}$/;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
@@ -120,6 +121,32 @@ function validateInput(value) {
   const timeoutMs = Object.hasOwn(value, 'timeoutMs') ? ownValue(value, 'timeoutMs') : DEFAULT_TIMEOUT_MS;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 30000) fail('INVALID_TIMEOUT');
   return { sourcePin, paths: paths.sort(), fetchImpl, timeoutMs };
+}
+
+function normalizeMutableSource(value) {
+  if (!isPlainOwnDataObject(value) || Reflect.ownKeys(value).some((key) => typeof key !== 'string' || !['provider', 'repository', 'ref'].includes(key)) || value.provider !== 'github') fail('INVALID_SOURCE');
+  try {
+    const pin = normalizePromptPackageSourcePin({ ...value, commit: '0000000000000000000000000000000000000000' });
+    return { provider: pin.provider, repository: pin.repository, ref: pin.ref };
+  } catch { fail('INVALID_SOURCE'); }
+}
+
+/** Resolves a GitHub ref to a full immutable commit SHA before any content read. */
+export async function resolveGithubRefToCommit(input) {
+  if (!isPlainOwnDataObject(input) || Reflect.ownKeys(input).some((key) => typeof key !== 'string' || !RESOLVE_INPUT_FIELDS.has(key)) || !Object.hasOwn(input, 'source') || !Object.hasOwn(input, 'fetchImpl')) fail('INVALID_INPUT');
+  const source = normalizeMutableSource(ownValue(input, 'source'));
+  const fetchImpl = ownValue(input, 'fetchImpl');
+  if (typeof fetchImpl !== 'function') fail('INVALID_FETCH');
+  const timeoutMs = Object.hasOwn(input, 'timeoutMs') ? ownValue(input, 'timeoutMs') : DEFAULT_TIMEOUT_MS;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 30000) fail('INVALID_TIMEOUT');
+  const [owner, repository] = source.repository.split('/');
+  const response = await fetchWithTimeout(fetchImpl, `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/commits/${encodeURIComponent(source.ref)}`, timeoutMs);
+  if (!response || response.status < 200 || response.status > 299) fail('HTTP_RESPONSE');
+  let payload;
+  try { payload = await response.json(); } catch { fail('INVALID_JSON'); }
+  const sha = isPlainOwnDataObject(payload) ? ownValue(payload, 'sha') : null;
+  if (typeof sha !== 'string' || !SHA.test(sha)) fail('INVALID_COMMIT');
+  return Object.freeze({ ...source, commit: sha.toLowerCase() });
 }
 
 function requestUrl(sourcePin, path) {

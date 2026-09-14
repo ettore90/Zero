@@ -233,7 +233,7 @@ export async function syncPinnedGithubPromptPackageManually(input) {
   }
   if (!configuredSource) manualSyncFail('SOURCE_NOT_CONFIGURED');
   if (!configuredSource.enabled) manualSyncFail('SOURCE_DISABLED');
-  if (configuredSource.provider !== 'github' || configuredSource.repository !== descriptor.sourcePin.repository || configuredSource.sourceRef !== descriptor.sourcePin.ref || configuredSource.pinnedCommit !== descriptor.sourcePin.commit) {
+  if (configuredSource.provider !== 'github' || configuredSource.repository !== descriptor.sourcePin.repository || configuredSource.sourceRef !== descriptor.sourcePin.ref) {
     manualSyncFail('SOURCE_MISMATCH');
   }
 

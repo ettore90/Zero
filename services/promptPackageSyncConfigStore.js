@@ -1,5 +1,5 @@
 import { getDb, generateId } from '../db.js';
-import { normalizePromptPackageSourcePin } from './promptPackageSourcePolicy.js';
+import { normalizeGithubRepository } from './promptPackageSourcePolicy.js';
 
 const OWN = Object.prototype.hasOwnProperty;
 const COMMIT = /^[a-f0-9]{40}$/;
@@ -24,8 +24,15 @@ function assertOnlyKeys(value, allowed, field) {
   for (const key of Object.keys(value)) if (!allowed.has(key)) fail(`${field}.${key} is not supported`);
 }
 
-function sourceKeyFor(pin) {
-  return `github:${pin.repository}@${pin.ref}`;
+function normalizeSource(value, field = 'source') {
+  if (!isPlainObject(value) || Object.keys(value).some((key) => !['provider', 'repository', 'ref'].includes(key)) || value.provider !== 'github') fail(`${field} must contain provider, repository, and ref`);
+  const repository = normalizeGithubRepository(value.repository, `${field}.repository`);
+  if (typeof value.ref !== 'string' || value.ref.length === 0 || value.ref.length > 255 || /\s/.test(value.ref) || value.ref.split('/').includes('..')) fail(`${field}.ref must be a non-empty ref without whitespace or parent segments`);
+  return { provider: 'github', repository, ref: value.ref };
+}
+
+function sourceKeyFor(source) {
+  return `github:${source.repository}@${source.ref}`;
 }
 
 function normalizeMetadata(value) {
@@ -95,7 +102,6 @@ function toSource(row) {
     provider: row.provider,
     repository: row.repository,
     sourceRef: row.source_ref,
-    pinnedCommit: row.pinned_commit,
     enabled: row.enabled === 1,
     lastSeenCommit: row.last_seen_commit,
     lastStagedCommit: row.last_staged_commit,
@@ -121,10 +127,10 @@ export function getPromptPackageSyncSource(sourceKey) {
 }
 
 export function upsertPromptPackageSyncSource(input) {
-  assertOnlyKeys(input, new Set(['sourcePin', 'sourceKey', 'enabled', 'metadata']), 'input');
-  if (!OWN.call(input, 'sourcePin')) fail('input.sourcePin is required');
-  const pin = normalizePromptPackageSourcePin(input.sourcePin, 'input.sourcePin');
-  const sourceKey = sourceKeyFor(pin);
+  assertOnlyKeys(input, new Set(['source', 'sourceKey', 'enabled', 'metadata']), 'input');
+  if (!OWN.call(input, 'source')) fail('input.source is required');
+  const source = normalizeSource(input.source, 'input.source');
+  const sourceKey = sourceKeyFor(source);
   if (OWN.call(input, 'sourceKey') && input.sourceKey !== sourceKey) fail('input.sourceKey must match the canonical source identity');
   if (OWN.call(input, 'enabled') && typeof input.enabled !== 'boolean') fail('input.enabled must be a boolean');
   const metadata = normalizeMetadata(input.metadata);
@@ -135,13 +141,13 @@ export function upsertPromptPackageSyncSource(input) {
     if (!existing) {
       const id = generateId('prompt_package_sync_source');
       db.prepare(`INSERT INTO prompt_package_sync_sources
-        (id, source_key, provider, repository, source_ref, pinned_commit, enabled, metadata, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(id, sourceKey, pin.provider, pin.repository, pin.ref, pin.commit, input.enabled === true ? 1 : 0, metadata?.serialized || '{}', now, now);
+        (id, source_key, provider, repository, source_ref, enabled, metadata, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, sourceKey, source.provider, source.repository, source.ref, input.enabled === true ? 1 : 0, metadata?.serialized || '{}', now, now);
       return toSource(db.prepare('SELECT * FROM prompt_package_sync_sources WHERE id = ?').get(id));
     }
-    db.prepare(`UPDATE prompt_package_sync_sources SET pinned_commit = ?, enabled = ?, metadata = ?, updated_at = ? WHERE id = ?`)
-      .run(pin.commit, OWN.call(input, 'enabled') ? (input.enabled ? 1 : 0) : existing.enabled, metadata?.serialized || existing.metadata, now, existing.id);
+    db.prepare(`UPDATE prompt_package_sync_sources SET enabled = ?, metadata = ?, updated_at = ? WHERE id = ?`)
+      .run(OWN.call(input, 'enabled') ? (input.enabled ? 1 : 0) : existing.enabled, metadata?.serialized || existing.metadata, now, existing.id);
     return toSource(db.prepare('SELECT * FROM prompt_package_sync_sources WHERE id = ?').get(existing.id));
   })();
 }
