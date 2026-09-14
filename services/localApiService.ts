@@ -183,10 +183,14 @@ export interface GithubConnectionStatus {
     oauthConfigured: boolean;
     oauth: { connected: boolean; githubLogin?: string | null; scopes?: string[]; expiresAt?: number | null; updatedAt?: number };
     cliAvailable: boolean;
+    cliConnected: boolean;
     runtimeTokenAvailable: boolean;
 }
+export interface GithubCliDeviceFlow { active: boolean; connected: boolean; verificationUri?: string; userCode?: string | null; expiresAt?: number; error?: string | null; }
 export async function getGithubConnectionStatus(): Promise<GithubConnectionStatus> { return localGetRequired('/api/settings/github-connection'); }
 export async function startGithubOAuth(): Promise<{ authorizationUrl: string }> { return localPost('/api/settings/github-connection/oauth/start', {}); }
+export async function startGithubCliDeviceFlow(): Promise<GithubCliDeviceFlow> { return localPost('/api/settings/github-connection/cli/start', {}); }
+export async function getGithubCliDeviceFlowStatus(): Promise<GithubCliDeviceFlow> { return localGetRequired('/api/settings/github-connection/cli/status'); }
 export async function disconnectGithubOAuth(): Promise<{ disconnected: boolean }> { return localDelete('/api/settings/github-connection', {}); }
 
 export type GithubPrivateAccessRequestStatus = 'pending' | 'approved' | 'rejected' | 'revoked';

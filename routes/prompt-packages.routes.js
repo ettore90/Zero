@@ -20,6 +20,7 @@ import {
 } from '../services/promptPackageSyncService.js';
 import { createGithubPrivateReadFetch } from '../services/githubPrivateAccessProvider.js';
 import { completeGithubOAuthAuthorization, createGithubOAuthAuthorization, disconnectGithubOAuth, githubCredentialStatus } from '../services/githubCredentialProvider.js';
+import { disconnectGithubCli, githubCliAuthenticated, githubCliDeviceFlowStatus, startGithubCliDeviceFlow } from '../services/githubCliAuthService.js';
 import {
   createGithubPrivateAccessRequest,
   decideGithubPrivateAccessRequest,
@@ -446,14 +447,20 @@ function githubPrivateAccessError(res, error) {
   return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 403 ? 'operator authorization required' : 'GitHub private access request rejected' });
 }
 
-router.get('/settings/github-connection', checkLocalAccess, (req, res) => {
-  try { return res.json(githubCredentialStatus(githubPrivateAccessOwner(req))); } catch { return res.status(401).json({ error: 'authentication required' }); }
+router.get('/settings/github-connection', checkLocalAccess, async (req, res) => {
+  try { return res.json(await githubCredentialStatus(githubPrivateAccessOwner(req))); } catch { return res.status(401).json({ error: 'authentication required' }); }
+});
+router.post('/settings/github-connection/cli/start', checkLocalAccess, async (req, res) => {
+  try { return res.json(await startGithubCliDeviceFlow(githubPrivateAccessOwner(req))); } catch { return res.status(503).json({ error: 'GitHub CLI is unavailable' }); }
+});
+router.get('/settings/github-connection/cli/status', checkLocalAccess, async (req, res) => {
+  try { return res.json({ ...githubCliDeviceFlowStatus(githubPrivateAccessOwner(req)), connected: await githubCliAuthenticated() }); } catch { return res.status(401).json({ error: 'authentication required' }); }
 });
 router.post('/settings/github-connection/oauth/start', checkLocalAccess, (req, res) => {
   try { return res.json({ authorizationUrl: createGithubOAuthAuthorization(githubPrivateAccessOwner(req)) }); } catch { return res.status(503).json({ error: 'GitHub OAuth is not configured' }); }
 });
-router.delete('/settings/github-connection', checkLocalAccess, (req, res) => {
-  try { return res.json({ disconnected: disconnectGithubOAuth(githubPrivateAccessOwner(req)) }); } catch { return res.status(401).json({ error: 'authentication required' }); }
+router.delete('/settings/github-connection', checkLocalAccess, async (req, res) => {
+  try { const owner = githubPrivateAccessOwner(req); const cliDisconnected = await disconnectGithubCli(); return res.json({ disconnected: disconnectGithubOAuth(owner) || cliDisconnected }); } catch { return res.status(401).json({ error: 'authentication required' }); }
 });
 router.get('/settings/github-connection/oauth/callback', async (req, res) => {
   try { await completeGithubOAuthAuthorization({ code: req.query?.code, state: req.query?.state }); return res.type('html').send('<!doctype html><title>GitHub connected</title><p>GitHub connected. You may close this window and return to Zero.</p>'); } catch { return res.status(400).type('html').send('<!doctype html><title>GitHub connection failed</title><p>GitHub connection failed. Return to Zero and try again.</p>'); }
