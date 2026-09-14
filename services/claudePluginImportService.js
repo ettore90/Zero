@@ -14,6 +14,7 @@ export class ClaudePluginImportError extends Error {
   constructor(code) { super('Claude plugin import failed'); this.name = 'ClaudePluginImportError'; this.code = code; }
 }
 const fail = (code) => { throw new ClaudePluginImportError(code); };
+const remoteFail = (error) => fail(typeof error?.code === 'string' ? error.code : 'REMOTE_FETCH_FAILED');
 function configuredSource(sourceKey) {
   if (typeof sourceKey !== 'string' || !SOURCE_KEY.test(sourceKey)) fail('INVALID_SOURCE_KEY');
   const source = getPromptPackageSyncSource(sourceKey);
@@ -34,9 +35,9 @@ function safeId(value) {
 async function discover(sourceKey, fetchImpl) {
   const source = configuredSource(sourceKey);
   let sourcePin;
-  try { sourcePin = await resolveGithubRefToCommit({ source: sourceIdentity(source), fetchImpl }); } catch { fail('REMOTE_FETCH_FAILED'); }
+  try { sourcePin = await resolveGithubRefToCommit({ source: sourceIdentity(source), fetchImpl }); } catch (error) { remoteFail(error); }
   let paths;
-  try { paths = await fetchPinnedGithubTreePaths({ sourcePin, fetchImpl }); } catch { fail('REMOTE_FETCH_FAILED'); }
+  try { paths = await fetchPinnedGithubTreePaths({ sourcePin, fetchImpl }); } catch (error) { remoteFail(error); }
   const descriptors = paths.filter((path) => path === '.claude-plugin/plugin.json' || path.endsWith('/.claude-plugin/plugin.json'));
   if (!descriptors.length) fail('DESCRIPTOR_NOT_FOUND');
   const roots = descriptors.map((path) => path === '.claude-plugin/plugin.json' ? '' : path.slice(0, -'/.claude-plugin/plugin.json'.length));
@@ -52,7 +53,7 @@ async function discover(sourceKey, fetchImpl) {
   }
   if (needed.size > MAX_PLUGIN_FILES) fail('TOO_MANY_PLUGIN_FILES');
   let fetched;
-  try { fetched = await fetchPinnedGithubPromptFiles({ sourcePin, paths: [...needed], fetchImpl }); } catch { fail('REMOTE_FETCH_FAILED'); }
+  try { fetched = await fetchPinnedGithubPromptFiles({ sourcePin, paths: [...needed], fetchImpl }); } catch (error) { remoteFail(error); }
   let discovered;
   try { discovered = discoverClaudePluginManifests({ sourcePin, files: fetched.files.map(({ path, content, contentHash }) => ({ path, content, contentHash })) }); } catch { fail('INVALID_PLUGIN_CONTENT'); }
   return { source, sourcePin, fetched, manifests: discovered.manifests };

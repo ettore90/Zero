@@ -502,7 +502,7 @@ function claudePluginStatus(error) {
   if (!(error instanceof ClaudePluginImportError)) return 500;
   if (['SOURCE_NOT_CONFIGURED', 'DESCRIPTOR_NOT_FOUND'].includes(error.code)) return 404;
   if (['SOURCE_DISABLED', 'SOURCE_MISMATCH'].includes(error.code)) return 409;
-  if (['REMOTE_FETCH_FAILED'].includes(error.code)) return 422;
+  if (['REMOTE_FETCH_FAILED', 'HTTP_RESPONSE', 'REQUEST_FAILED', 'TIMEOUT', 'INVALID_JSON', 'INVALID_COMMIT', 'INVALID_TREE', 'INVALID_PAYLOAD', 'INVALID_CONTENT'].includes(error.code)) return 422;
   if (['ACCESS_DENIED', 'URL_NOT_ALLOWED', 'METHOD_NOT_ALLOWED'].includes(error.code)) return 403;
   return 400;
 }
@@ -523,7 +523,7 @@ router.post('/settings/prompt-package-sync-sources/:sourceKey/claude-plugins/dis
   } catch (error) {
     const status = error?.statusCode === 401 ? 401 : claudePluginStatus(error);
     const reason = error?.code || 'UNEXPECTED_ERROR';
-    return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 403 ? 'GitHub credential or source authorization unavailable' : status === 422 ? 'GitHub could not resolve or read the configured source' : 'Claude plugin discovery rejected', code: reason });
+    return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 403 ? 'GitHub credential or source authorization unavailable' : status === 422 ? `GitHub could not resolve or read the configured source (${reason})` : 'Claude plugin discovery rejected', code: reason });
   }
 });
 
