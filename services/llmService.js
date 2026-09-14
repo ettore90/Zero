@@ -23,6 +23,8 @@ import { recordPromptCompositionAudit } from './promptCompositionAuditStore.js';
 import { createHash, randomUUID } from 'node:crypto';
 import http2 from 'http2';
 import { BASH_BIN } from '../utils/shell.js';
+import { buildProjectInstructionsBlock } from './projectContext.js';
+import { listPluginCatalogForAgent, isPluginCatalogInspectionCallerAuthorized } from './pluginCatalog.js';
 
 const PROVIDER_URLS = {
   // Public canonical provider APIs may remain as safe fallbacks when no instance-specific baseUrl/env is configured.
@@ -1549,6 +1551,14 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
   const stateProfile = state?.profile && typeof state.profile === 'object' ? state.profile : {};
   const userDisplayName = stateProfile.displayName || stateProfile.name || stateProfile.fullName || '';
   const startTime = Date.now();
+  // Tools that only read state: safe to execute concurrently within one assistant turn.
+  const PARALLEL_SAFE_TOOLS = new Set([
+    'read_file', 'list_directory', 'find_files', 'search_code',
+    'git_status', 'git_diff', 'git_log',
+    'recall_memory', 'list_notes', 'read_note',
+    'list_agents', 'get_agent_details', 'list_available_tools',
+    'list_plugins', 'inspect_plugin',
+  ]);
   const MAX_ITERATIONS = Number(sandbox?.maxIterations) > 0 ? Number(sandbox.maxIterations) : (workerContract?.maxIterations || 70);
   let iteration = 0;
   let finalContent = '';
@@ -1806,6 +1816,38 @@ export async function runAgentLoop({ username, agentId, messages, tools: externa
     return null;
   };
 
+  const buildSkillsCatalogBlock = () => {
+    if (sandboxMode) return null;
+    if (!isPluginCatalogInspectionCallerAuthorized({ username, callerAgentId: String(agentId || '') })) return null;
+
+    const entries = listPluginCatalogForAgent({ username, agentId: String(agentId) });
+    if (!Array.isArray(entries) || entries.length === 0) return null;
+
+    const lines = [];
+    for (const entry of entries) {
+      const available = entry.features?.skills || [];
+      const requestable = entry.requestableFeatures?.skills || [];
+      const skills = [...available.map((key) => key), ...requestable.map((key) => `${key} (requer aprovação)`)];
+      if (!skills.length) continue;
+      lines.push(`- **${entry.package.packageKey}** · versionId \`${entry.version.id}\` · acesso \`${entry.access}\``);
+      lines.push(`  - skills: ${skills.join(', ')}`);
+      const bundles = (entry.features?.bundles || []).concat(entry.requestableFeatures?.bundles || []);
+      if (bundles.length) lines.push(`  - bundles MCP (metadado inerte, não executável): ${bundles.map((b) => (typeof b === 'string' ? b : b?.key)).filter(Boolean).join(', ')}`);
+    }
+    if (!lines.length) return null;
+
+    return [
+      '## Skills disponíveis',
+      '',
+      'Packages de plugin visíveis para você. Carregue uma skill com',
+      '`load_plugin_features({ packageKey, versionId, features: { skills: [...] } })`',
+      'quando a tarefa exigir o procedimento dela — só as que a tarefa exige.',
+      'Use `inspect_plugin` para detalhe de um package e `list_plugins` para reler esta lista.',
+      '',
+      ...lines,
+    ].join('\n');
+  };
+
   const buildMasterIdentityPrompt = () => {
     const configuredTimezone = state?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     const lines = [
@@ -2013,6 +2055,27 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
     if (firstSysIdx !== -1) {
       prefixBlocks.push({ ...requestHistory[firstSysIdx], content: normalizeStableText(requestHistory[firstSysIdx].content || ''), _cacheHint: true });
       requestHistory = [...requestHistory.slice(0, firstSysIdx), ...requestHistory.slice(firstSysIdx + 1)];
+    }
+
+    // Instruções do repositório (CLAUDE.md / AGENTS.md), lidas a partir do cwd do agente.
+    // Bloco estável: fica logo após o system prompt para entrar no prefixo cacheado.
+    try {
+      const projectInstructions = buildProjectInstructionsBlock(getCwd(agentId));
+      if (projectInstructions) {
+        prefixBlocks.push({ role: 'system', content: projectInstructions.content, _cacheHint: true });
+        auditLog('project_instructions_loaded', { files: projectInstructions.files });
+      }
+    } catch (err) {
+      console.error('[AgentLoop] Failed to load project instructions:', err?.message || err);
+    }
+
+    // Catálogo de skills/plugins disponíveis. Só identificadores — nunca conteúdo de
+    // artefato — para que o agente saiba o que existe antes de chamar load_plugin_features.
+    try {
+      const skillsCatalog = buildSkillsCatalogBlock();
+      if (skillsCatalog) prefixBlocks.push({ role: 'system', content: skillsCatalog, _cacheHint: true });
+    } catch (err) {
+      console.error('[AgentLoop] Failed to build skills catalog block:', err?.message || err);
     }
 
     if (rollingSummaryText && !sandboxMode) {
@@ -2660,6 +2723,35 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
 
       toolCallCount += toolCalls.filter((tc) => tc?.function?.name).length;
 
+      // Read-only tools have no side effects and no ordering dependency on each other,
+      // so when the model asks for several at once their I/O is overlapped here. The
+      // dispatch loop below stays sequential: it still consumes results in call order
+      // and every guard, audit and history mutation keeps its original semantics.
+      const prefetchedToolResults = new Map();
+      if (toolCalls.length > 1 && !sandboxMode) {
+        for (const tc of toolCalls) {
+          const toolName = tc?.function?.name;
+          if (!toolName || !PARALLEL_SAFE_TOOLS.has(toolName)) continue;
+          let parsedArgs = {};
+          try { parsedArgs = JSON.parse(tc.function.arguments || '{}'); } catch { continue; }
+          prefetchedToolResults.set(tc.id, dispatchTool(toolName, parsedArgs, agentId, username, ctx)
+            .then((value) => ({ ok: true, value }))
+            .catch((error) => ({ ok: false, error })));
+        }
+        if (prefetchedToolResults.size > 1) {
+          auditLog('parallel_tool_prefetch', { count: prefetchedToolResults.size, tools: toolCalls.filter((tc) => prefetchedToolResults.has(tc.id)).map((tc) => tc.function.name) });
+        }
+      }
+
+      const consumeToolResult = async (tc, toolName, toolArgs) => {
+        const prefetched = prefetchedToolResults.get(tc.id);
+        if (!prefetched) return dispatchTool(toolName, toolArgs, agentId, username, ctx);
+        prefetchedToolResults.delete(tc.id);
+        const settled = await prefetched;
+        if (settled.ok) return settled.value;
+        throw settled.error;
+      };
+
       for (const tc of toolCalls) {
         if (!tc?.function?.name) continue;
 
@@ -2774,7 +2866,7 @@ ${JSON.stringify({ plans: serialisedPlans }, null, 2)}`,
         auditLog('tool_call', { toolName, toolArgs, tool_call_id: tc.id });
         emitEvent('tool_call', { toolName, args: toolArgs, tool_call_id: tc.id });
 
-        const dispatchResult = await dispatchTool(toolName, toolArgs, agentId, username, ctx);
+        const dispatchResult = await consumeToolResult(tc, toolName, toolArgs);
         const rawOutput = dispatchResult?.output ?? dispatchResult;
         const trustMeta = dispatchResult?.trust || null;
         const truncatedPayload = truncateToolResultPayload(rawOutput, toolName);

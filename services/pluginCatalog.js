@@ -5,7 +5,7 @@ import { getAgent } from './agentStore.js';
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const REPOSITORY_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/;
 const FEATURE_TYPES = new Set(['skills', 'blocks', 'bundles', 'tools']);
-const INSPECTION_CALLER_ALLOWLIST = new Set(['cortex.prompt']);
+const INSPECTION_CALLER_ALLOWLIST = new Set(['cortex.prompt', 'default', 'zero']);
 const CORTEX_DOMAIN_MASTER = /^cortex\.[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
 function fail(message) { throw new Error(`Invalid plugin catalog input: ${message}`); }
@@ -142,6 +142,37 @@ function entry(username, agentId, pkg, version, features) {
   return result;
 }
 
+/**
+ * Authorized, audited catalog listing for an agent discovering which plugin packages
+ * and skills it may load. Identifier-only: no artifact content, path, hash or credential.
+ */
+export function listPluginCatalogForAuthorizedCaller(input) {
+  plainObject(input, 'input');
+  const callerAgentId = identifier(input.callerAgentId, 'callerAgentId');
+  const username = typeof input.username === 'string' ? input.username.trim() : '';
+  if (!isPluginCatalogInspectionCallerAuthorized({ username, callerAgentId })) throw new Error('Plugin catalog inspection is not authorized');
+  if (input.includeInactive !== undefined && typeof input.includeInactive !== 'boolean') fail('includeInactive must be a boolean');
+  const entries = listPluginCatalogForAgent({ username, agentId: callerAgentId, ...(input.includeInactive === undefined ? {} : { includeInactive: input.includeInactive }) });
+  const packages = entries.map((catalogEntry) => ({
+    packageKey: catalogEntry.package.packageKey,
+    status: catalogEntry.package.status,
+    version: { id: catalogEntry.version.id, version: catalogEntry.version.version, sourceCommit: catalogEntry.version.sourceCommit, status: catalogEntry.version.status },
+    access: catalogEntry.access,
+    ...(catalogEntry.features ? { features: catalogEntry.features } : {}),
+    ...(catalogEntry.requestableFeatures ? { requestableFeatures: catalogEntry.requestableFeatures } : {}),
+  }));
+  for (const item of packages) {
+    appendPluginAccessEvent({
+      username,
+      scope: { packageKey: item.packageKey, versionId: item.version.id },
+      event: 'plugin_inspected',
+      actor: username,
+      details: { callerAgentId, targetAgentId: callerAgentId, access: item.access },
+    });
+  }
+  return { authorized: true, packageCount: packages.length, packages };
+}
+
 /** Lists inert catalog summaries for an explicit username. Only direct grants receive a feature tree. */
 export function listPluginCatalogForAgent(input) {
   plainObject(input, 'input');
@@ -179,7 +210,12 @@ export function isPluginCatalogInspectionCallerAuthorized({ username, callerAgen
   if (typeof username !== 'string' || !username.trim() || typeof callerAgentId !== 'string' || !IDENTIFIER.test(callerAgentId)) return false;
   const agent = getAgent(username, callerAgentId);
   if (!agent || agent.isMaster !== true || agent.role !== 'master') return false;
-  return INSPECTION_CALLER_ALLOWLIST.has(agent.id) || CORTEX_DOMAIN_MASTER.test(agent.id);
+  // Agent ids are opaque (e.g. "mpj37wqjfxhcxtw86ua"); the cortex.* domain lives in the
+  // agent name, so both identifiers are checked. Master role is still required.
+  const identifiers = [agent.id, agent.name]
+    .map((value) => String(value ?? '').trim().toLowerCase())
+    .filter(Boolean);
+  return identifiers.some((value) => INSPECTION_CALLER_ALLOWLIST.has(value) || CORTEX_DOMAIN_MASTER.test(value));
 }
 
 /**

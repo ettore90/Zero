@@ -25,7 +25,8 @@ import { pendingApprovals } from './services/runtime.js';
 import { appendCommentToPlanItem, broadcastPlanUpdate, findLatestInProgressPlanForAgent, markPlanItemCompleted, normalizePlanForStorage, persistPlanRecord } from './services/planState.js';
 import { areSessionNotesEnabled } from './services/toolAccessPolicy.js';
 import { loadPluginFeaturesForAgent } from './services/pluginFeatureLoader.js';
-import { inspectPluginForAuthorizedCaller } from './services/pluginCatalog.js';
+import { inspectPluginForAuthorizedCaller, listPluginCatalogForAuthorizedCaller } from './services/pluginCatalog.js';
+import { searchCode } from './services/codeSearch.js';
 
 const ISOLATED_SUBAGENT_MAX_ITERATIONS = 20;
 const ISOLATED_SUBAGENT_TOOL_HEAVY_DEFAULT_ITERATIONS = 20;
@@ -610,6 +611,23 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
     const isNonEmptyObject = (value) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
 
     // Identity is exclusively supplied by server dispatch parameters. The catalog
+    // service authorizes, redacts, and audits this read-only listing.
+    if (toolName === 'list_plugins') {
+        const input = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
+        const allowed = new Set(['includeInactive']);
+        for (const key of Object.keys(input)) {
+            if (!allowed.has(key)) return { error: `Unsupported list_plugins field: ${key}` };
+        }
+        try {
+            const listingInput = { callerAgentId: String(agentId || ''), username: String(username || '') };
+            if (input.includeInactive !== undefined) listingInput.includeInactive = input.includeInactive;
+            return listPluginCatalogForAuthorizedCaller(listingInput);
+        } catch (error) {
+            return { error: error.message };
+        }
+    }
+
+    // Identity is exclusively supplied by server dispatch parameters. The catalog
     // service authorizes, redacts, and audits this read-only inspection.
     if (toolName === 'inspect_plugin') {
         const input = args && typeof args === 'object' && !Array.isArray(args) ? args : null;
@@ -1158,6 +1176,10 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         const result = await runCmd(cmd, findCwd);
         const files = result.output.split('\n').filter(Boolean);
         return { files };
+    }
+
+    if (toolName === 'search_code') {
+        return searchCode({ ...args, path: resolvePath(args.path || getEffectiveContainerCwd()) });
     }
 
     if (toolName === 'read_project_json') {

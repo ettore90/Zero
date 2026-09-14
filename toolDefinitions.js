@@ -118,6 +118,32 @@ export const SYSTEM_TOOLS = [
     },
   },
 
+  {
+    type: 'function',
+    group: 'File System',
+    function: {
+      name: 'search_code',
+      callableBy: ['workflow', 'llm', 'agent'],
+      description: 'Search file CONTENT by regex across a directory tree, like ripgrep. This is the primary way to find where something is defined or used — prefer it over shelling out to grep, and over find_files (which only matches file NAMES). Skips node_modules, .git, dist and binary files by default.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern:        { type: 'string', description: 'Regular expression to search for (JavaScript regex syntax). Set literal:true to match it as plain text instead.' },
+          path:           { type: 'string', description: 'Base directory to search in. Defaults to the agent working directory.' },
+          glob:           { type: 'string', description: 'Filename filter, e.g. "*.ts", "*.{ts,tsx}", "*.routes.js". Omit to search every text file.' },
+          literal:        { type: 'boolean', description: 'Treat pattern as a literal string instead of a regex (default: false).' },
+          case_sensitive: { type: 'boolean', description: 'Case-sensitive match (default: false).' },
+          files_only:     { type: 'boolean', description: 'Return only matching file paths with hit counts, no lines. Use to map a large codebase cheaply before reading.' },
+          context:        { type: 'number', description: 'Lines of context around each match (default: 0, max: 4).' },
+          max_results:    { type: 'number', description: 'Maximum matching lines to return (default: 80, max: 300).' },
+          max_depth:      { type: 'number', description: 'Maximum directory depth (default: 12, max: 20).' },
+          exclude:        { type: 'array', items: { type: 'string' }, description: 'Extra directory or file name patterns to skip, on top of the defaults.' },
+        },
+        required: ['pattern'],
+      },
+    },
+  },
+
   // ---------------------------------------------------------------------------
   // EXECUTION
   // ---------------------------------------------------------------------------
@@ -1509,6 +1535,23 @@ export const SYSTEM_TOOLS = [
           },
         },
 
+      },
+    },
+  },
+  {
+    type: 'function',
+    group: 'Plugin Catalog',
+    function: {
+      name: 'list_plugins',
+      callableBy: ['llm', 'agent'],
+      description: 'List every plugin package visible to the calling agent, with its active version, access level and the identifier-only inventory of skills, MCP bundles and tools it declares. This is the entry point for skill discovery: call it to learn which packageKey and feature IDs exist, then inspect_plugin for detail and load_plugin_features to load. Read-only, redacted and audited; caller identity comes only from server dispatch context.',
+      parameters: {
+        type: 'object',
+        properties: {
+          includeInactive: { type: 'boolean', description: 'Include disabled packages as well (default: false).' },
+        },
+        required: [],
+        additionalProperties: false,
       },
     },
   },
