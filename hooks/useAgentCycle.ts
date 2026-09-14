@@ -53,6 +53,20 @@ interface UseAgentCycleOptions {
   locallyStreamingAgentsRef: MutableRefObject<Set<string>>;
 }
 
+// ChatPanel é `memo` na prop `agent` e monta os nós da conversa com
+// `useMemo([history])`. Empurrar direto em `agent.history` mantinha o mesmo
+// objeto e o mesmo array, então o React não repintava: a mensagem enviada só
+// aparecia quando o primeiro token do streaming criava cópias novas. Toda
+// escrita no histórico passa por aqui para continuar imutável.
+function withAppendedHistory(agents: Agent[], index: number, ...messages: Message[]): Agent[] {
+  const next = [...agents];
+  const target = { ...next[index] } as Agent;
+  const history = Array.isArray(target.history) ? target.history : [];
+  target.history = [...history, ...messages];
+  next[index] = target;
+  return next;
+}
+
 function requiresApproval(toolName: string, args: any): boolean {
   if (toolName === 'run_terminal_command') {
     const cmd = args?.command || '';
@@ -167,17 +181,17 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
       if (isEphemeral) {
         ephemeralHistory.push({ role: 'user', content: userMessageContent, timestamp: Date.now(), images, attachments } as any);
       } else {
-        currentAgents[activeAgentIndex].history.push({ role: 'user', content: userMessageContent, timestamp: Date.now(), images, attachments } as any);
+        currentAgents = withAppendedHistory(currentAgents, activeAgentIndex, { role: 'user', content: userMessageContent, timestamp: Date.now(), images, attachments } as any);
       }
       if (!silent) opts.setActiveAgentId(targetAgentId);
     }
 
     if (!isEphemeral) {
-      opts.setPersistedAgents([...currentAgents]);
+      opts.setPersistedAgents(currentAgents);
       opts.agentsRef.current = currentAgents;
     }
 
-    const agent = currentAgents[activeAgentIndex];
+    let agent = currentAgents[activeAgentIndex];
     const modelConfig = opts.modelsRef.current.find(m => m.modelId === agent.model || m.id === agent.model);
     if (!modelConfig) {
       const errMsg = agent.isMaster
@@ -190,8 +204,9 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
         opts.isGeneratingRef.current = false;
         opts.locallyStreamingAgentsRef.current.delete(agentId);
       }
-      currentAgents[activeAgentIndex].history.push({ role: 'assistant' as const, content: errMsg, timestamp: Date.now() });
-      opts.setPersistedAgents([...currentAgents]);
+      currentAgents = withAppendedHistory(currentAgents, activeAgentIndex, { role: 'assistant' as const, content: errMsg, timestamp: Date.now() } as any);
+      opts.setPersistedAgents(currentAgents);
+      opts.agentsRef.current = currentAgents;
       return undefined;
     }
 
@@ -203,8 +218,12 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
     if (isEphemeral) {
       ephemeralHistory.push({ role: 'assistant', content: '', timestamp: Date.now() } as any);
     } else {
-      currentAgents[activeAgentIndex].history.push({ role: 'assistant', content: '', timestamp: Date.now() } as any);
-      opts.setPersistedAgents([...currentAgents]);
+      currentAgents = withAppendedHistory(currentAgents, activeAgentIndex, { role: 'assistant', content: '', timestamp: Date.now() } as any);
+      opts.setPersistedAgents(currentAgents);
+      opts.agentsRef.current = currentAgents;
+      // `agent` precisa apontar para a cópia nova: `agent.history.slice(0, -1)`
+      // abaixo conta com o placeholder já presente no histórico.
+      agent = currentAgents[activeAgentIndex];
     }
 
     try {
@@ -443,24 +462,29 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
               if (sessRes.ok) {
                 const { session: freshSession } = await sessRes.json();
                 if (freshSession?.messages && finalAgents[finalIdx].activeSessionId === finalSessionId) {
-                  finalAgents[finalIdx].history = freshSession.messages;
+                  const history = [...freshSession.messages];
                   if ((result as any).reasoningTokens !== undefined) {
-                    const lastMsg = finalAgents[finalIdx].history[finalAgents[finalIdx].history.length - 1];
+                    const lastMsg = history[history.length - 1];
                     if (lastMsg?.role === 'assistant' && (lastMsg as any).reasoningTokens === undefined) {
-                      (lastMsg as any).reasoningTokens = (result as any).reasoningTokens;
+                      history[history.length - 1] = { ...lastMsg, reasoningTokens: (result as any).reasoningTokens };
                     }
                   }
+                  finalAgents[finalIdx] = { ...finalAgents[finalIdx], history };
                 }
               }
             }
           } catch {}
         } else {
-          const finalHistory = finalAgents[finalIdx].history ?? [];
+          const finalHistory = [...(finalAgents[finalIdx].history ?? [])];
           const lastMsg = finalHistory[finalHistory.length - 1];
           if (lastMsg) {
-            lastMsg.content = (result as any).content;
-            (lastMsg as any).tool_calls = (result as any).tool_calls;
-            if ((result as any).reasoningTokens !== undefined) (lastMsg as any).reasoningTokens = (result as any).reasoningTokens;
+            finalHistory[finalHistory.length - 1] = {
+              ...lastMsg,
+              content: (result as any).content,
+              tool_calls: (result as any).tool_calls,
+              ...((result as any).reasoningTokens !== undefined ? { reasoningTokens: (result as any).reasoningTokens } : {}),
+            } as any;
+            finalAgents[finalIdx] = { ...finalAgents[finalIdx], history: finalHistory };
           }
         }
         opts.setPersistedAgents(finalAgents);
@@ -511,8 +535,9 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
         const errAgents = [...opts.agentsRef.current];
         const errIdx = errAgents.findIndex(a => a.id === targetAgentId);
         if (errIdx !== -1) {
-          errAgents[errIdx].history.push({ role: 'assistant' as const, content: `[SYSTEM ERROR]: ${e.message}`, timestamp: Date.now() });
-          opts.setPersistedAgents(errAgents);
+          const withError = withAppendedHistory(errAgents, errIdx, { role: 'assistant' as const, content: `[SYSTEM ERROR]: ${e.message}`, timestamp: Date.now() } as any);
+          opts.setPersistedAgents(withError);
+          opts.agentsRef.current = withError;
         }
       }
       if (!silent) {
@@ -520,6 +545,21 @@ export const useAgentCycle = (opts: UseAgentCycleOptions) => {
         opts.locallyStreamingAgentsRef.current.delete(agentId);
       }
       return undefined;
+    } finally {
+      // Havia saídas — agente removido da lista, tool call abortada, resultado
+      // que não terminava em `role: 'tool'` — que retornavam sem tirar o agente
+      // de `locallyStreamingAgentsRef`. Com a marca presa, o App.tsx descartava
+      // todo `chunk` e todo `session_updated` vindo do SSE (achando que esta aba
+      // já estava aplicando), e `isGenerating` ficava travado enfileirando as
+      // mensagens seguintes: a tela só voltava a andar com um refresh. A saída
+      // do ciclo agora sempre limpa as duas coisas.
+      if (!silent) {
+        opts.locallyStreamingAgentsRef.current.delete(agentId);
+        if (opts.isAgentGenerating(agentId)) {
+          opts.setAgentGenerating(agentId, false, null);
+          opts.isGeneratingRef.current = false;
+        }
+      }
     }
   };
 

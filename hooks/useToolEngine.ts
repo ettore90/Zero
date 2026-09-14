@@ -428,10 +428,18 @@ Respond ONLY with the corrected JSON arguments object, nothing else.`;
                 externalHistory.push(toolResult);
             } else {
                 // Modo normal: persistir no agent.history
+                // Cópia nova do agente e do histórico: ChatPanel é `memo(agent)`
+                // e agrupa as tool calls com `useMemo([history])`, então mutar
+                // no lugar deixava o resultado da tool invisível até a próxima
+                // atualização vinda de outro caminho.
                 const finalAgents = [...agentsRef.current];
                 const finalIdx = finalAgents.findIndex(a => a.id === agentId);
                 if (finalIdx !== -1) {
-                    finalAgents[finalIdx].history.push(toolResult);
+                    const target = finalAgents[finalIdx];
+                    finalAgents[finalIdx] = {
+                        ...target,
+                        history: [...(Array.isArray(target.history) ? target.history : []), toolResult],
+                    };
                     setAgents(finalAgents);
                     agentsRef.current = finalAgents;
                 }

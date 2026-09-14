@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Message, ToolCall } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -191,7 +191,22 @@ const ToolActivity = memo(({ group, isRunning }: { group: ToolActivityGroup; isR
     });
   }, []);
 
-  const { toolCount, subagentCount, errorCount, durationLabel, toolNames } = useMemo(() => {
+  // Enquanto o ciclo roda, `group.endedAt` é o timestamp da última mensagem —
+  // o relógio só andava quando chegava uma tool nova, então o tempo pulava em
+  // blocos. Um tick de 1s dá a contagem contínua; parado, o tick não existe.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isRunning) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isRunning, group.key]);
+
+  const elapsedMs = isRunning
+    ? Math.max(now, group.endedAt) - group.startedAt
+    : group.endedAt - group.startedAt;
+
+  const { toolCount, subagentCount, errorCount, toolNames } = useMemo(() => {
     const names = new Map<string, number>();
     let subagents = 0;
     let errors = 0;
@@ -204,10 +219,11 @@ const ToolActivity = memo(({ group, isRunning }: { group: ToolActivityGroup; isR
       toolCount: group.calls.length,
       subagentCount: subagents,
       errorCount: errors,
-      durationLabel: formatDuration(group.endedAt - group.startedAt),
       toolNames: Array.from(names.entries()).sort((a, b) => b[1] - a[1]),
     };
   }, [group]);
+
+  const durationLabel = formatDuration(elapsedMs);
 
   const headline = [
     isRunning ? 'Working' : 'Worked',
