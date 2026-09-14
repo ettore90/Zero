@@ -1133,10 +1133,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     canvas.setActiveCanvasTab('editor');
     // Every selection section has to close, the project tree included: while
     // one is open the canvas renders the list panel, so opening the tree here
-    // hid the scratch pad that had just been created.
+    // hid the scratch pad that had just been created. A aprovação selecionada
+    // esconde a aba pelo mesmo motivo.
     setIsCanvasProjectTreeSectionOpen(false);
     setIsCanvasSessionNotesSectionOpen(false);
     setIsCanvasApprovalsSectionOpen(false);
+    setActiveApprovalId(null);
   }, [canvas]);
 
   const handleSaveAsTab = async (_tabId: string, content: string, currentPath: string) => {
@@ -1184,6 +1186,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setIsCanvasSessionNotesSectionOpen(false);
     setIsCanvasProjectTreeSectionOpen(false);
     setIsCanvasApprovalsSectionOpen(false);
+    // A aprovação selecionada tem precedência sobre a aba no canvas, e uma é
+    // escolhida sozinha sempre que a sessão tem alguma. Sem soltar a seleção
+    // aqui, abrir uma nota numa sessão com aprovação não mostrava nota nenhuma.
+    setActiveApprovalId(null);
 
     const optimisticNote = explicitSessionId
       ? sessionSnapshot.notes.find((note) => String(note?.noteId || note?.id || '').trim() === canonicalNoteId) || null

@@ -30,7 +30,20 @@ async function openSessionNote(page: Page) {
   // relying on whatever note the canvas happened to have open made the suite
   // flaky, since on a fresh session there is no editor to find at all.
   // Each run therefore leaves one note behind.
-  await page.getByRole('button', { name: 'New', exact: true }).click();
+  // As notas são opcionais por sessão e vêm desligadas por padrão; com elas
+  // desligadas o "New" fica desabilitado e o clique abaixo esperaria para
+  // sempre. Ligar aqui deixa o spec independente do estado em que a sessão
+  // aberta estiver.
+  const notesToggle = page.getByRole('switch', { name: /session notes/i }).first();
+  await notesToggle.waitFor({ state: 'visible', timeout: 20000 });
+  if ((await notesToggle.getAttribute('aria-checked')) !== 'true') {
+    await notesToggle.click();
+    await expect(notesToggle).toHaveAttribute('aria-checked', 'true', { timeout: 20000 });
+  }
+
+  const newNote = page.getByRole('button', { name: 'New', exact: true });
+  await expect(newNote).toBeEnabled({ timeout: 20000 });
+  await newNote.click();
 
   // New creates and selects the note but does not open it; the row has to be
   // clicked to load it into the canvas editor.
