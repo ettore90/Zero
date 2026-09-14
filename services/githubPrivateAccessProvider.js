@@ -1,5 +1,6 @@
 import { getEffectiveGithubPrivateAccessAuthorization } from './githubPrivateAccessStore.js';
 import { normalizeGithubRepository } from './promptPackageSourcePolicy.js';
+import { resolveGithubCredential } from './githubCredentialProvider.js';
 
 const PURPOSE = 'read_only';
 const USERNAME = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -39,15 +40,16 @@ function eligibleUrl(input, repository) {
  * Creates a narrowly scoped fetch for one approved immutable GitHub source pin.
  * The environment token is only read at construction and never included in outputs or errors.
  */
-export function createGithubPrivateReadFetch(input) {
+export async function createGithubPrivateReadFetch(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('ACCESS_DENIED');
   const { ownerUsername, source, fetchImpl = globalThis.fetch, at } = input;
   const username = requiredUsername(ownerUsername);
   let requestedSource;
   try { requestedSource = normalizeSource(source); } catch { fail('ACCESS_DENIED'); }
   if (typeof fetchImpl !== 'function') fail('ACCESS_DENIED');
-  const token = process.env.ZERO_GREEN_GITHUB_READ_TOKEN;
-  if (typeof token !== 'string' || token.length === 0) fail('ACCESS_DENIED');
+  let credential;
+  try { credential = await resolveGithubCredential(username); } catch { fail('ACCESS_DENIED'); }
+  const token = credential.token;
   // Validate once before returning the wrapper and again for every request.
   // The per-request check makes expiry and revocation take effect immediately.
   try {

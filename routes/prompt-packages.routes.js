@@ -19,6 +19,7 @@ import {
   syncPinnedGithubPromptPackageManually,
 } from '../services/promptPackageSyncService.js';
 import { createGithubPrivateReadFetch } from '../services/githubPrivateAccessProvider.js';
+import { completeGithubOAuthAuthorization, createGithubOAuthAuthorization, disconnectGithubOAuth, githubCredentialStatus } from '../services/githubCredentialProvider.js';
 import {
   createGithubPrivateAccessRequest,
   decideGithubPrivateAccessRequest,
@@ -445,6 +446,19 @@ function githubPrivateAccessError(res, error) {
   return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 403 ? 'operator authorization required' : 'GitHub private access request rejected' });
 }
 
+router.get('/settings/github-connection', checkLocalAccess, (req, res) => {
+  try { return res.json(githubCredentialStatus(githubPrivateAccessOwner(req))); } catch { return res.status(401).json({ error: 'authentication required' }); }
+});
+router.post('/settings/github-connection/oauth/start', checkLocalAccess, (req, res) => {
+  try { return res.json({ authorizationUrl: createGithubOAuthAuthorization(githubPrivateAccessOwner(req)) }); } catch { return res.status(503).json({ error: 'GitHub OAuth is not configured' }); }
+});
+router.delete('/settings/github-connection', checkLocalAccess, (req, res) => {
+  try { return res.json({ disconnected: disconnectGithubOAuth(githubPrivateAccessOwner(req)) }); } catch { return res.status(401).json({ error: 'authentication required' }); }
+});
+router.get('/settings/github-connection/oauth/callback', async (req, res) => {
+  try { await completeGithubOAuthAuthorization({ code: req.query?.code, state: req.query?.state }); return res.type('html').send('<!doctype html><title>GitHub connected</title><p>GitHub connected. You may close this window and return to Zero.</p>'); } catch { return res.status(400).type('html').send('<!doctype html><title>GitHub connection failed</title><p>GitHub connection failed. Return to Zero and try again.</p>'); }
+});
+
 router.post('/settings/github-private-access-requests', checkLocalAccess, (req, res) => {
   try {
     const ownerUsername = githubPrivateAccessOwner(req);
@@ -496,7 +510,7 @@ router.post('/settings/prompt-package-sync-sources/:sourceKey/claude-plugins/dis
     if (typeof globalThis.fetch !== 'function') return res.status(503).json({ error: 'Claude plugin discovery is unavailable' });
     const ownerUsername = githubPrivateAccessOwner(req);
     const source = sourceForKey(req.params.sourceKey);
-    const result = await discoverClaudePluginsFromSource({ sourceKey: req.params.sourceKey, fetchImpl: createGithubPrivateReadFetch({ ownerUsername, source, fetchImpl: globalThis.fetch }) });
+    const result = await discoverClaudePluginsFromSource({ sourceKey: req.params.sourceKey, fetchImpl: await createGithubPrivateReadFetch({ ownerUsername, source, fetchImpl: globalThis.fetch }) });
     return res.status(200).json(result);
   } catch (error) {
     const status = error?.statusCode === 401 ? 401 : claudePluginStatus(error);
@@ -506,11 +520,11 @@ router.post('/settings/prompt-package-sync-sources/:sourceKey/claude-plugins/dis
 
 router.post('/settings/prompt-package-sync-sources/:sourceKey/claude-plugins/import', checkLocalAccess, async (req, res) => {
   try {
-    if (!isPlainObject(req.body) || Object.keys(req.body).some((key) => !['pluginRoot', 'documentKey'].includes(key))) return res.status(400).json({ error: 'invalid Claude plugin import request' });
+    if (!isPlainObject(req.body) || Object.keys(req.body).some((key) => !['pluginRoot', 'agentId'].includes(key))) return res.status(400).json({ error: 'invalid Claude plugin import request' });
     if (typeof globalThis.fetch !== 'function') return res.status(503).json({ error: 'Claude plugin import is unavailable' });
     const ownerUsername = githubPrivateAccessOwner(req);
     const source = sourceForKey(req.params.sourceKey);
-    const result = await importClaudePluginFromSource({ sourceKey: req.params.sourceKey, pluginRoot: req.body.pluginRoot, documentKey: req.body.documentKey, actor: ownerUsername, fetchImpl: createGithubPrivateReadFetch({ ownerUsername, source, fetchImpl: globalThis.fetch }) });
+    const result = await importClaudePluginFromSource({ sourceKey: req.params.sourceKey, pluginRoot: req.body.pluginRoot, agentId: req.body.agentId, actor: ownerUsername, fetchImpl: await createGithubPrivateReadFetch({ ownerUsername, source, fetchImpl: globalThis.fetch }) });
     return res.status(result.changed ? 201 : 200).json({ package: result.package, version: result.version, artifacts: result.artifacts, event: result.event, changed: result.changed, sourceKey: result.sourceKey, resolvedCommit: result.resolvedCommit });
   } catch (error) {
     const status = error?.statusCode === 401 ? 401 : claudePluginStatus(error);
@@ -669,7 +683,7 @@ router.post('/settings/prompt-package-sync/manual', checkLocalAccess, async (req
       version: req.body.version,
       documentKey: req.body.documentKey,
       artifactMappings: req.body.artifactMappings,
-      fetchImpl: createGithubPrivateReadFetch({
+      fetchImpl: await createGithubPrivateReadFetch({
         ownerUsername: githubPrivateAccessOwner(req),
         source: { provider: 'github', repository: req.body.descriptor?.sourcePin?.repository, ref: req.body.descriptor?.sourcePin?.ref },
         fetchImpl: globalThis.fetch,

@@ -3,6 +3,9 @@ import { fetchPinnedGithubPromptFiles, fetchPinnedGithubTreePaths, resolveGithub
 import { getPromptPackageSyncSource } from './promptPackageSyncConfigStore.js';
 import { stagePinnedGithubPromptPackage } from './promptPackageSyncService.js';
 import { upsertPromptPackageSyncJob } from './promptPackageSyncJobStore.js';
+import { getVisibleAgent } from './agentStore.js';
+import { getOrBootstrapPromptDocumentByAgent } from './promptStore.js';
+import { upsertPluginAccessGrant } from './pluginAccessStore.js';
 
 const MAX_PLUGIN_FILES = 64;
 const SOURCE_KEY = /^github:([a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*)@([^\s]+)$/;
@@ -64,7 +67,11 @@ export async function discoverClaudePluginsFromSource(input) {
 
 /** Imports one discovered candidate and creates its future ref-following sync job. */
 export async function importClaudePluginFromSource(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((key) => !['sourceKey', 'pluginRoot', 'documentKey', 'actor', 'fetchImpl'].includes(key)) || typeof input.fetchImpl !== 'function' || typeof input.documentKey !== 'string' || !input.documentKey.trim()) fail('INVALID_INPUT');
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((key) => !['sourceKey', 'pluginRoot', 'agentId', 'actor', 'fetchImpl'].includes(key)) || typeof input.fetchImpl !== 'function' || typeof input.agentId !== 'string' || !input.agentId.trim() || typeof input.actor !== 'string' || !input.actor.trim()) fail('INVALID_INPUT');
+  const agent = getVisibleAgent(input.actor, input.agentId.trim());
+  const document = agent && getOrBootstrapPromptDocumentByAgent({ username: input.actor, agentId: agent.id });
+  if (!document?.key) fail('AGENT_NOT_FOUND');
+  const documentKey = document.key;
   const result = await discover(input.sourceKey, input.fetchImpl);
   const pluginRoot = root(input.pluginRoot);
   const manifest = result.manifests.find((item) => item.metadata.claudePlugin.root === pluginRoot);
@@ -76,10 +83,11 @@ export async function importClaudePluginFromSource(input) {
   const artifactMappings = skills.map((skill, position) => ({ artifactKey: `${safeId(skill.path.slice(0, -'/SKILL.md'.length))}-skill`, blockKey: `${packageKey}-${safeId(skill.key)}`, blockType: 'text', included: true, position, metadata: {} }));
   let staged;
   try {
-    staged = stagePinnedGithubPromptPackage({ sourcePin: result.sourcePin, package: { packageKey, source: 'github', repository: result.sourcePin.repository, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered', sourceCommit: result.sourcePin.commit, sourceRef: result.sourcePin.ref, manifest }, files, documentKey: input.documentKey.trim(), artifactMappings, details: { origin: 'claude_plugin_source_import' }, ...(input.actor ? { actor: input.actor } : {}) });
+    staged = stagePinnedGithubPromptPackage({ sourcePin: result.sourcePin, package: { packageKey, source: 'github', repository: result.sourcePin.repository, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered', sourceCommit: result.sourcePin.commit, sourceRef: result.sourcePin.ref, manifest }, files, documentKey, artifactMappings, details: { origin: 'claude_plugin_source_import' }, ...(input.actor ? { actor: input.actor } : {}) });
   } catch { fail('STAGING_FAILED'); }
   try {
-    upsertPromptPackageSyncJob({ sourceKey: input.sourceKey, enabled: true, intervalSeconds: 3600, descriptor: { schemaVersion: 1, sourcePin: result.sourcePin, manifestPath: pluginRoot ? `${pluginRoot}/.claude-plugin/plugin.json` : '.claude-plugin/plugin.json', artifactPaths: skills.map((skill) => skill.path) }, package: { packageKey, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered' }, documentKey: input.documentKey.trim(), artifactMappings, details: { origin: 'claude_plugin_source_import' }, ...(input.actor ? { createdBy: input.actor } : {}) });
+    upsertPromptPackageSyncJob({ sourceKey: input.sourceKey, enabled: true, intervalSeconds: 3600, descriptor: { schemaVersion: 1, sourcePin: result.sourcePin, manifestPath: pluginRoot ? `${pluginRoot}/.claude-plugin/plugin.json` : '.claude-plugin/plugin.json', artifactPaths: skills.map((skill) => skill.path) }, package: { packageKey, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered' }, documentKey, artifactMappings, details: { origin: 'claude_plugin_source_import' }, ...(input.actor ? { createdBy: input.actor } : {}) });
   } catch { fail('JOB_FAILED'); }
-  return { ...staged, sourceKey: input.sourceKey, resolvedCommit: result.sourcePin.commit };
+  try { upsertPluginAccessGrant({ username: input.actor, agentId: agent.id, scope: { packageKey, sourceCommit: result.sourcePin.commit }, mode: 'direct', approvedFeatures: { skills: skills.map((skill) => skill.key), bundles: [], tools: [] }, actor: input.actor }); } catch { fail('GRANT_FAILED'); }
+  return { ...staged, sourceKey: input.sourceKey, resolvedCommit: result.sourcePin.commit, agentId: agent.id, documentKey };
 }

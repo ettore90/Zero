@@ -2,6 +2,7 @@ import { listPromptPackageSyncJobs } from './promptPackageSyncJobStore.js';
 import { getPromptPackageSyncSource, recordPromptPackageSyncCheckpoint } from './promptPackageSyncConfigStore.js';
 import { syncPinnedGithubPromptPackageManually } from './promptPackageSyncService.js';
 import { normalizePinnedGithubPromptDescriptor, resolveGithubRefToCommit } from './pinnedGithubPromptClient.js';
+import { createGithubPrivateReadFetch } from './githubPrivateAccessProvider.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -267,7 +268,10 @@ export function createPromptPackageSyncScheduler(options = {}) {
       }
       if (!active(workGeneration)) break;
 
-      const fetchImpl = configuredFetch || (typeof globalThis.fetch === 'function' ? globalThis.fetch : null);
+      let fetchImpl = configuredFetch;
+      if (!fetchImpl && typeof globalThis.fetch === 'function') {
+        try { fetchImpl = await createGithubPrivateReadFetch({ ownerUsername: job.createdBy || SCHEDULER_ACTOR, source: { provider: source.provider, repository: source.repository, ref: source.sourceRef }, fetchImpl: globalThis.fetch }); } catch { fetchImpl = null; }
+      }
       const run = (async () => {
         if (!fetchImpl) {
           await checkpointFailure(sourceKey, job.intervalSeconds, workGeneration, nowSeconds, 'prompt_package_scheduler_checkpoint_failed');

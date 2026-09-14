@@ -152,7 +152,7 @@ export interface ClaudePluginDiscoveryResponse { sourceKey: string; resolvedComm
 export async function discoverClaudePluginsFromSource(sourceKey: string): Promise<ClaudePluginDiscoveryResponse> {
     return localPost<ClaudePluginDiscoveryResponse>(`/api/settings/prompt-package-sync-sources/${encodeURIComponent(sourceKey)}/claude-plugins/discover`, {});
 }
-export async function importClaudePluginFromSource(sourceKey: string, request: { pluginRoot: string; documentKey: string }): Promise<{ changed: boolean; resolvedCommit: string }> {
+export async function importClaudePluginFromSource(sourceKey: string, request: { pluginRoot: string; agentId: string }): Promise<{ changed: boolean; resolvedCommit: string }> {
     return localPost<{ changed: boolean; resolvedCommit: string }>(`/api/settings/prompt-package-sync-sources/${encodeURIComponent(sourceKey)}/claude-plugins/import`, request);
 }
 
@@ -178,6 +178,16 @@ export interface PinnedGithubPromptSourcePin {
     ref: string;
     commit: string;
 }
+
+export interface GithubConnectionStatus {
+    oauthConfigured: boolean;
+    oauth: { connected: boolean; githubLogin?: string | null; scopes?: string[]; expiresAt?: number | null; updatedAt?: number };
+    cliAvailable: boolean;
+    runtimeTokenAvailable: boolean;
+}
+export async function getGithubConnectionStatus(): Promise<GithubConnectionStatus> { return localGetRequired('/api/settings/github-connection'); }
+export async function startGithubOAuth(): Promise<{ authorizationUrl: string }> { return localPost('/api/settings/github-connection/oauth/start', {}); }
+export async function disconnectGithubOAuth(): Promise<{ disconnected: boolean }> { return localDelete('/api/settings/github-connection', {}); }
 
 export type GithubPrivateAccessRequestStatus = 'pending' | 'approved' | 'rejected' | 'revoked';
 

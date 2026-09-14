@@ -600,6 +600,21 @@ function _createSchema(db) {
   `);
 
   db.exec(`
+    -- OAuth credentials are encrypted server-side and never serialized into API responses or audits.
+    CREATE TABLE IF NOT EXISTS github_oauth_connections (
+      owner_username TEXT PRIMARY KEY,
+      token_ciphertext TEXT NOT NULL,
+      token_iv TEXT NOT NULL,
+      token_tag TEXT NOT NULL,
+      scopes TEXT NOT NULL,
+      github_login TEXT,
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS prompt_package_sync_sources (
       id TEXT PRIMARY KEY,
       source_key TEXT NOT NULL UNIQUE,

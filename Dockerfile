@@ -1,7 +1,7 @@
 FROM node:18-alpine
 WORKDIR /app
 
-RUN apk add --no-cache git openssh-client bash curl python3 py3-pip alpine-sdk
+RUN apk add --no-cache git openssh-client bash curl python3 py3-pip alpine-sdk github-cli
 
 # The container runs as root while the bind-mounted repos belong to the host
 # user (uid 1000), so git refuses them with "detected dubious ownership" and
