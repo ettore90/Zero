@@ -10,6 +10,7 @@ import CommandLibrary from '../CommandLibrary';
 import ModelDashboard from '../ModelDashboard';
 import MemoryExplorer from '../MemoryExplorer';
 import { Agent, Workflow, Project } from '../../types';
+import type { QueuedMessage } from '../../hooks/useMessageQueue';
 
 interface AppRouterProps {
   viewMode: 'chat' | 'automation' | 'commands' | 'dashboard' | 'memory';
@@ -33,6 +34,9 @@ interface AppRouterProps {
   setShowAgentManager: (v: boolean) => void;
   setEditingAgent: (agent: Agent | undefined) => void;
   handleSendMessage: (msg: string, images?: string[], attachments?: any[]) => void;
+  queuedMessages?: QueuedMessage[];
+  onEditQueuedMessage?: (id: string, text: string) => void;
+  onRemoveQueuedMessage?: (id: string) => void;
   handleRunWorkflow: (wf: Workflow, isAuto?: boolean) => Promise<void>;
   handleSaveWorkflow: (wf: Workflow) => void;
   onApproveTool: () => void;
@@ -65,7 +69,8 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
     ollamaHost, username, timezone,
     saveField, setWorkflows, setEditingWorkflowId, setIsChatVisible,
     setPersistedAgents, setShowAgentManager, setEditingAgent,
-    handleSendMessage, handleRunWorkflow, handleSaveWorkflow,
+    handleSendMessage, queuedMessages = [], onEditQueuedMessage, onRemoveQueuedMessage,
+    handleRunWorkflow, handleSaveWorkflow,
     onApproveTool, onDenyTool, onStop, syncStatus, isGenerating,
     pendingApproval, strategyPlanItems, pendingStrategyPlan, onMarkStrategyPlanCompleted, sessionNoteRemoteRefreshKey, projects = [], activeProjectId = null, onSelectProject,
     onAddProject, onEditProject, onDeleteProject,
@@ -79,6 +84,9 @@ const AppRouter: React.FC<AppRouterProps> = (props) => {
           agent={activeAgent}
           username={username}
           onSendMessage={handleSendMessage}
+          queuedMessages={queuedMessages}
+          onEditQueuedMessage={onEditQueuedMessage}
+          onRemoveQueuedMessage={onRemoveQueuedMessage}
           onEditAgent={() => { setEditingAgent(activeAgent); setShowAgentManager(true); }}
           onClearSummary={() => setPersistedAgents(agents.map(a => a.id === activeAgent.id ? { ...a, summary: '' } : a))}
           isGenerating={isGenerating}

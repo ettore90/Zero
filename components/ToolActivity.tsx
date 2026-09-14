@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { Message, ToolCall } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -176,6 +176,20 @@ export const buildToolActivityGroup = (key: string, messages: Message[]): ToolAc
 
 const ToolActivity = memo(({ group, isRunning }: { group: ToolActivityGroup; isRunning: boolean }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const headerRef = useRef<HTMLButtonElement>(null);
+
+  // Expandir um ciclo longo empurrava o resto da conversa centenas de pixels
+  // para baixo e o cabeçalho — o único lugar que fecha de novo — saía da tela.
+  // Agora o detalhe rola dentro de uma caixa de altura fixa, o cabeçalho fica
+  // grudado no topo dela, e fechar traz o cabeçalho de volta ao campo de visão.
+  const toggle = useCallback(() => {
+    setIsOpen((open) => {
+      if (open) {
+        window.requestAnimationFrame(() => headerRef.current?.scrollIntoView({ block: 'nearest' }));
+      }
+      return !open;
+    });
+  }, []);
 
   const { toolCount, subagentCount, errorCount, durationLabel, toolNames } = useMemo(() => {
     const names = new Map<string, number>();
@@ -221,10 +235,11 @@ const ToolActivity = memo(({ group, isRunning }: { group: ToolActivityGroup; isR
 
       <div className="min-w-0 max-w-[85%] flex-1">
         <button
+          ref={headerRef}
           type="button"
-          onClick={() => setIsOpen(open => !open)}
+          onClick={toggle}
           aria-expanded={isOpen}
-          className="group flex w-full min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/50 dark:bg-slate-800/60 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+          className={`group sticky top-0 z-10 flex w-full min-w-0 items-center gap-2 border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/50 dark:bg-slate-800/60 dark:hover:border-slate-600 dark:hover:bg-slate-800 ${isOpen ? 'rounded-t-xl' : 'rounded-xl'}`}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -256,7 +271,7 @@ const ToolActivity = memo(({ group, isRunning }: { group: ToolActivityGroup; isR
         </button>
 
         {isOpen && (
-          <div className="mt-1.5 space-y-1.5">
+          <div className="max-h-[50vh] space-y-1.5 overflow-y-auto rounded-b-xl border border-t-0 border-slate-200 bg-white/60 p-1.5 custom-scrollbar dark:border-slate-700/50 dark:bg-slate-900/30">
             {group.calls.map((call, index) => {
               const argSummary = summarizeToolArgs(call.name, call.arguments);
               const resultPreview = previewResult(call.result);
@@ -282,7 +297,7 @@ const ToolActivity = memo(({ group, isRunning }: { group: ToolActivityGroup; isR
                     </pre>
                   )}
                   {resultPreview && (
-                    <pre className={`mt-1.5 overflow-x-auto whitespace-pre-wrap break-words border-t pt-1.5 font-mono text-[10px] ${
+                    <pre className={`mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap break-words border-t pt-1.5 font-mono text-[10px] ${
                       call.isError
                         ? 'border-red-200 text-red-600 dark:border-red-500/30 dark:text-red-300'
                         : 'border-slate-200 text-slate-500 dark:border-slate-800 dark:text-slate-500'
@@ -293,6 +308,13 @@ const ToolActivity = memo(({ group, isRunning }: { group: ToolActivityGroup; isR
                 </div>
               );
             })}
+            <button
+              type="button"
+              onClick={toggle}
+              className="w-full rounded-lg py-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            >
+              Collapse
+            </button>
           </div>
         )}
       </div>

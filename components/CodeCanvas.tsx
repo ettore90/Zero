@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef } from 'react';
+import { useStickToBottom } from '../hooks/useStickToBottom';
 import { CanvasTab } from '../hooks/useCanvasState';
 import { Message, ToolCall } from '../types';
 import { isSessionNoteTab } from './CanvasRail';
@@ -65,22 +66,18 @@ const SmartValue = ({ value, depth = 0 }: { value: any; depth?: number }) => {
 };
 
 const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval, agentId, onApprove, onDeny }) => {
-  const streamRef = useRef<HTMLDivElement>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    const el = viewportRef.current ?? streamRef.current;
-    if (!el) return;
-    if (Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 80) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [history.length]);
+  // Mesma regra do chat: acompanha o fim enquanto o usuário estiver no fim, e
+  // devolve o controle com o botão de seta quando ele rola para cima. O gatilho
+  // é o crescimento do conteúdo, não `history.length` — a saída de uma tool
+  // chega dentro de uma mensagem que já existe e não mudava o contador.
+  const { scrollRef: viewportRef, contentRef: streamRef, isAtBottom, onScroll, scrollToBottom } = useStickToBottom({ threshold: 80 });
 
   const commandLog = history.filter(m => (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) || m.role === 'tool');
   const pendingSensitiveCalls = Array.isArray(pendingApproval?.sensitiveCalls) ? pendingApproval.sensitiveCalls : [];
 
   return (
-    <div ref={viewportRef} className="flex-1 min-h-0 overflow-auto bg-slate-200 dark:bg-[#1e1e1e]">
+    <div className="relative flex-1 min-h-0">
+    <div ref={viewportRef} onScroll={onScroll} className="h-full overflow-auto bg-slate-200 dark:bg-[#1e1e1e]">
       <div ref={streamRef} className="p-3 space-y-3 text-xs font-mono">
         {commandLog.length === 0 && (
           <div className="select-none py-10 text-center text-slate-500 dark:text-slate-400">
@@ -147,6 +144,20 @@ const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval,
         </div>
       )}
       </div>
+    </div>
+
+    {!isAtBottom && (
+      <button
+        type="button"
+        onClick={() => scrollToBottom()}
+        title="Jump to latest"
+        className="absolute bottom-4 left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-lg transition-all hover:text-nebula-500 active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+        </svg>
+      </button>
+    )}
     </div>
   );
 };

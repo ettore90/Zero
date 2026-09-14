@@ -37,6 +37,7 @@ import { useNotifications } from './hooks/useNotifications';
 import { useSyncStatus } from './hooks/useSyncStatus';
 import { useWorkflowScheduler } from './hooks/useWorkflowScheduler';
 import { useSessionManager } from './hooks/useSessionManager';
+import { useMessageQueue } from './hooks/useMessageQueue';
 import { useGenerationControl } from './hooks/useGenerationControl';
 import { useUIState } from './hooks/useUIState';
 import { useToolApproval } from './hooks/useToolApproval';
@@ -1133,11 +1134,38 @@ const App: React.FC = () => {
     });
     runAgentCycleRef.current = runAgentCycle;
 
-    const handleSendMessage = (text: string, images?: string[], attachments?: Attachment[]) => {
-        if (isAgentGenerating(activeAgentId)) return;
+    // Entrega direta ao ciclo — usada tanto pelo envio imediato quanto pela fila.
+    const dispatchToAgent = useCallback((agentId: string, text: string, images?: string[], attachments?: Attachment[]) => {
         const ctrl = new AbortController();
-        runAgentCycle(activeAgentId, text, images, attachments, ctrl.signal);
+        runAgentCycleRef.current?.(agentId, text, images, attachments, ctrl.signal);
+    }, []);
+
+    // Enquanto o agente trabalha, nada é bloqueado: a mensagem entra na fila e
+    // é entregue quando o ciclo fecha (ver useMessageQueue). Aprovação de tool
+    // ou de plano pendente segura a entrega — o ciclo ainda não terminou de fato.
+    const canFlushQueue = useCallback(
+        () => !pendingApproval && !pendingPlan && !pendingStrategyPlan,
+        [pendingApproval, pendingPlan, pendingStrategyPlan]
+    );
+
+    const { queue: messageQueue, enqueue, updateQueued, removeQueued } = useMessageQueue({
+        runStateByAgent,
+        canFlush: canFlushQueue,
+        onFlush: dispatchToAgent,
+    });
+
+    const handleSendMessage = (text: string, images?: string[], attachments?: Attachment[]) => {
+        if (isAgentGenerating(activeAgentId) || !canFlushQueue()) {
+            enqueue(activeAgentId, text, images, attachments);
+            return;
+        }
+        dispatchToAgent(activeAgentId, text, images, attachments);
     };
+
+    const queuedForActiveAgent = useMemo(
+        () => messageQueue.filter((item) => item.agentId === activeAgentId),
+        [messageQueue, activeAgentId]
+    );
 
     const { handleApproveTool } = useToolApproval({
         pendingApproval,
@@ -1397,6 +1425,9 @@ const App: React.FC = () => {
           setShowAgentManager={setShowAgentManager}
           setEditingAgent={setEditingAgent}
           handleSendMessage={handleSendMessage}
+          queuedMessages={queuedForActiveAgent}
+          onEditQueuedMessage={updateQueued}
+          onRemoveQueuedMessage={removeQueued}
           handleRunWorkflow={handleRunWorkflow}
           handleSaveWorkflow={handleSaveWorkflow}
           onApproveTool={handleApproveTool}

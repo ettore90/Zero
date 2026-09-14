@@ -10,6 +10,8 @@ import { useSessionNoteSync, type SessionNoteSyncPort, type UseSessionNoteSyncRe
 import * as SystemService from '../services/systemService';
 import * as ServerChat from '../services/serverChatService';
 import ToolActivity, { buildToolActivityGroup, type ToolActivityGroup } from './ToolActivity';
+import { useStickToBottom } from '../hooks/useStickToBottom';
+import type { QueuedMessage } from '../hooks/useMessageQueue';
 
 const normalizeCommentItemError = (err: unknown) => {
   const message = err instanceof Error ? err.message : String(err || '');
@@ -25,6 +27,9 @@ interface ChatInterfaceProps {
   agent: Agent;
   username: string;
   onSendMessage: (text: string, images?: string[], attachments?: Message['attachments']) => void;
+  queuedMessages?: QueuedMessage[];
+  onEditQueuedMessage?: (id: string, text: string) => void;
+  onRemoveQueuedMessage?: (id: string) => void;
   onEditAgent: () => void;
   onClearSummary: () => void;
   isGenerating: boolean;
@@ -287,6 +292,101 @@ const MessageItem = memo(({ msg, isGenerating, isLast }: { msg: Message; isGener
 });
 
 // ---------------------------------------------------------------------------
+// QueuedMessageItem — mensagem escrita durante o ciclo, ainda não entregue
+//
+// Fica no lugar onde ela vai entrar na conversa e continua editável até a
+// entrega: clicar abre o textarea no próprio balão, Ctrl+Enter salva, Esc
+// cancela, e apagar o texto todo remove a mensagem da fila.
+// ---------------------------------------------------------------------------
+const QueuedMessageItem = memo(({ item, onEdit, onRemove }: {
+  item: QueuedMessage;
+  onEdit?: (id: string, text: string) => void;
+  onRemove?: (id: string) => void;
+}) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(item.text);
+  const editRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { setDraft(item.text); }, [item.text]);
+  useEffect(() => {
+    if (!isEditing || !editRef.current) return;
+    const el = editRef.current;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [isEditing]);
+
+  const commit = () => { onEdit?.(item.id, draft); setIsEditing(false); };
+  const cancel = () => { setDraft(item.text); setIsEditing(false); };
+
+  const attachmentCount = (item.images?.length ?? 0) + (item.attachments?.length ?? 0);
+
+  return (
+    <div className="flex gap-3 justify-end">
+      <div className="max-w-[85%] rounded-2xl border border-dashed border-amber-300 bg-amber-50/70 px-4 py-3 text-slate-700 dark:border-amber-500/40 dark:bg-amber-500/5 dark:text-slate-200">
+        <div className="mb-1.5 flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l2.5 2.5M12 3a9 9 0 100 18 9 9 0 000-18z" />
+          </svg>
+          <span className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400">Queued</span>
+          <span className="text-[9px] text-amber-600/60 dark:text-amber-400/60">delivered when the cycle ends</span>
+        </div>
+
+        {isEditing ? (
+          <>
+            <textarea
+              ref={editRef}
+              value={draft}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                e.target.style.height = 'auto';
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
+              }}
+              rows={1}
+              spellCheck={false}
+              className="w-full resize-none rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-sm text-slate-800 outline-none dark:border-amber-500/30 dark:bg-slate-900/60 dark:text-slate-100"
+            />
+            <div className="mt-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider">
+              <button onClick={commit} className="rounded-md bg-amber-500 px-2 py-1 text-white transition-colors hover:bg-amber-600">Save</button>
+              <button onClick={cancel} className="rounded-md px-2 py-1 text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">Cancel</button>
+            </div>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsEditing(true)}
+            title="Edit before it is delivered"
+            className="w-full cursor-text text-left text-sm whitespace-pre-wrap break-words"
+          >
+            {item.text || <span className="italic opacity-60">(attachments only)</span>}
+          </button>
+        )}
+
+        <div className="mt-2 flex items-center justify-end gap-3 text-[9px] font-bold uppercase tracking-[0.2em] text-amber-600/70 dark:text-amber-400/60">
+          {attachmentCount > 0 && <span>{attachmentCount} attached</span>}
+          {!isEditing && (
+            <>
+              <button onClick={() => setIsEditing(true)} className="transition-colors hover:text-amber-700 dark:hover:text-amber-300">Edit</button>
+              <button onClick={() => onRemove?.(item.id)} className="transition-colors hover:text-red-500">Remove</button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-dashed border-amber-400 text-[10px] font-black text-amber-500">
+        U
+      </div>
+    </div>
+  );
+});
+QueuedMessageItem.displayName = 'QueuedMessageItem';
+
+// ---------------------------------------------------------------------------
 // ChatInput
 // ---------------------------------------------------------------------------
 const ChatInput = memo(({
@@ -309,9 +409,13 @@ const ChatInput = memo(({
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
 
+  const hasPayload = Boolean(input.trim()) || pendingFiles.length > 0;
+
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if ((!input.trim() && pendingFiles.length === 0) || isGenerating || isProcessingFiles) return;
+    // isGenerating não bloqueia mais: o chamador decide entre enviar agora e
+    // enfileirar para o fim do ciclo.
+    if ((!input.trim() && pendingFiles.length === 0) || isProcessingFiles) return;
     const images = pendingFiles.filter(f => f.type === 'image' && f.preview).map(f => f.preview!);
     const attachments = pendingFiles.filter(f => f.type !== 'image').map(f => ({
       name: f.file.name,
@@ -351,7 +455,7 @@ const ChatInput = memo(({
   }, []);
 
   const handleToggleRecording = useCallback(async () => {
-    if (isGenerating || isProcessingFiles || isTranscribing) return;
+    if (isProcessingFiles || isTranscribing) return;
 
     if (isRecording) {
       mediaRecorderRef.current?.stop();
@@ -436,7 +540,7 @@ const ChatInput = memo(({
       const message = error instanceof Error ? error.message : 'Unable to access microphone.';
       window.alert(message);
     }
-  }, [isGenerating, isProcessingFiles, isRecording, isTranscribing, scheduleTextareaResize, stopRecordingTracks]);
+  }, [isProcessingFiles, isRecording, isTranscribing, scheduleTextareaResize, stopRecordingTracks]);
 
   useEffect(() => {
     return () => {
@@ -449,7 +553,7 @@ const ChatInput = memo(({
 
   const handleAudioCaptureChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || isGenerating || isProcessingFiles || isTranscribing) return;
+    if (!file || isProcessingFiles || isTranscribing) return;
 
     setIsTranscribing(true);
     try {
@@ -535,8 +639,8 @@ const ChatInput = memo(({
 
         <button
           onClick={handleToggleRecording}
-          disabled={isGenerating || isProcessingFiles || isTranscribing}
-          className={`flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full transition-colors ${isRecording ? 'bg-red-50 text-red-500 dark:bg-red-500/10' : isTranscribing ? 'bg-amber-50 text-amber-500 dark:bg-amber-500/10' : 'text-slate-400 hover:text-nebula-500'} ${(isGenerating || isProcessingFiles || isTranscribing) && !isRecording ? 'cursor-not-allowed opacity-50' : ''}`}
+          disabled={isProcessingFiles || isTranscribing}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full transition-colors ${isRecording ? 'bg-red-50 text-red-500 dark:bg-red-500/10' : isTranscribing ? 'bg-amber-50 text-amber-500 dark:bg-amber-500/10' : 'text-slate-400 hover:text-nebula-500'} ${(isProcessingFiles || isTranscribing) && !isRecording ? 'cursor-not-allowed opacity-50' : ''}`}
           title={isRecording ? 'Stop recording' : isTranscribing ? 'Transcribing audio...' : 'Record audio'}
         >
           {isRecording ? (
@@ -560,27 +664,37 @@ const ChatInput = memo(({
             scheduleTextareaResize(e.target);
           }}
           onKeyDown={handleKeyDown}
-          placeholder={isTranscribing ? 'Transcribing audio...' : isRecording ? 'Recording audio...' : isGenerating ? 'Generation in progress...' : 'Message...'}
+          placeholder={isTranscribing ? 'Transcribing audio...' : isRecording ? 'Recording audio...' : isGenerating ? 'Message — queued until the cycle ends...' : 'Message...'}
           rows={1}
-          disabled={isGenerating || isTranscribing}
+          disabled={isTranscribing}
           spellCheck={false}
           autoComplete="off"
           className="min-h-[40px] flex-1 self-center bg-transparent px-2 py-2.5 text-[15px] font-medium text-slate-800 placeholder-slate-400 outline-none ring-0 resize-none disabled:opacity-50 dark:text-slate-100 dark:placeholder-slate-500"
         />
 
-        {isGenerating ? (
-          <button onClick={onStop} className="group flex h-10 w-10 shrink-0 self-center items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition-all hover:scale-105 hover:bg-red-600 active:scale-95">
-            <div className="w-3 h-3 bg-white rounded-sm group-hover:scale-90 transition-transform" />
-          </button>
-        ) : (
+        {/* Durante o ciclo os dois convivem: parar continua a um clique e enviar
+            vira "enfileirar", em vez de sumir da barra. */}
+        {(!isGenerating || hasPayload) && (
           <button
             onClick={() => handleSubmit()}
-            disabled={(!input.trim() && pendingFiles.length === 0) || isProcessingFiles || isTranscribing}
-            className={`flex h-10 w-10 shrink-0 self-center items-center justify-center rounded-full transition-all ${(!input.trim() && pendingFiles.length === 0) || isProcessingFiles || isTranscribing ? 'opacity-40 text-slate-200 dark:text-slate-800' : 'text-nebula-600 shadow-sm hover:bg-nebula-50 active:scale-90 dark:hover:bg-nebula-500/10'}`}
+            disabled={!hasPayload || isProcessingFiles || isTranscribing}
+            title={isGenerating ? 'Queue for the end of the cycle' : 'Send'}
+            className={`flex h-10 w-10 shrink-0 self-center items-center justify-center rounded-full transition-all ${!hasPayload || isProcessingFiles || isTranscribing ? 'opacity-40 text-slate-200 dark:text-slate-800' : isGenerating ? 'text-amber-500 shadow-sm hover:bg-amber-50 active:scale-90 dark:hover:bg-amber-500/10' : 'text-nebula-600 shadow-sm hover:bg-nebula-50 active:scale-90 dark:hover:bg-nebula-500/10'}`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 rotate-90" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-            </svg>
+            {isGenerating ? (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l2.5 2.5M12 3a9 9 0 100 18 9 9 0 000-18z" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 rotate-90" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+              </svg>
+            )}
+          </button>
+        )}
+        {isGenerating && (
+          <button onClick={onStop} title="Stop generation" className="group flex h-10 w-10 shrink-0 self-center items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition-all hover:scale-105 hover:bg-red-600 active:scale-95">
+            <div className="w-3 h-3 bg-white rounded-sm group-hover:scale-90 transition-transform" />
           </button>
         )}
       </div>
@@ -588,7 +702,7 @@ const ChatInput = memo(({
       <div className="hidden md:flex justify-center items-center gap-5 text-[8px] font-black text-slate-400 uppercase tracking-[0.25em] px-4 opacity-60 select-none">
         <span>ENTER FOR LINEBREAK</span>
         <span className="w-1 h-1 bg-slate-200 dark:bg-slate-800 rounded-full" />
-        <span>CTRL+ENTER TO SEND</span>
+        <span>{isGenerating ? 'CTRL+ENTER TO QUEUE' : 'CTRL+ENTER TO SEND'}</span>
         <span className="w-1 h-1 bg-slate-200 dark:bg-slate-800 rounded-full" />
         <span className="text-nebula-500">SYSTEM ONLINE</span>
       </div>
@@ -603,6 +717,9 @@ interface ChatPanelProps {
   agent: Agent;
   isGenerating: boolean;
   onSendMessage: (text: string, images?: string[], attachments?: Message['attachments']) => void;
+  queuedMessages?: QueuedMessage[];
+  onEditQueuedMessage?: (id: string, text: string) => void;
+  onRemoveQueuedMessage?: (id: string) => void;
   onClearSummary: () => void;
   onStop: () => void;
   syncStatus?: 'idle' | 'saving' | 'saved' | 'error';
@@ -613,20 +730,26 @@ interface ChatPanelProps {
 
 const ChatPanel: React.FC<ChatPanelProps> = memo(({
   agent, isGenerating,
-  onSendMessage, onClearSummary, onStop,
+  onSendMessage, queuedMessages = [], onEditQueuedMessage, onRemoveQueuedMessage,
+  onClearSummary, onStop,
   syncStatus = 'idle', isChatVisible = true, onToggleChat, mobileRail,
 }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  // A lista só acompanha o conteúdo novo enquanto o usuário estiver no fim;
+  // rolou para cima, a posição fica onde está e o botão de seta faz a volta.
+  const { scrollRef, contentRef, isAtBottom, onScroll, scrollToBottom } = useStickToBottom({ threshold: 80 });
   const history = Array.isArray(agent.history)
     ? agent.history
     : ((agent.history as any)?.messages ?? []);
 
+  // Sessão trocada é conversa nova: volta ao fim sem animação.
+  useEffect(() => { scrollToBottom('auto'); }, [agent.id, agent.activeSessionId, scrollToBottom]);
 
-
-
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [history.length, history[history.length - 1]?.content]);
+  // Enviar (ou enfileirar) é sempre um ato de quem quer ver o que vem a seguir:
+  // volta ao fim mesmo que a leitura estivesse parada lá em cima.
+  const handleSend = useCallback((text: string, images?: string[], attachments?: Message['attachments']) => {
+    onSendMessage(text, images, attachments);
+    window.requestAnimationFrame(() => scrollToBottom());
+  }, [onSendMessage, scrollToBottom]);
 
   // Consecutive tool traffic — the assistant messages that issue tool calls and
   // the `role: 'tool'` messages carrying their results — collapses into a single
@@ -772,7 +895,9 @@ const ChatPanel: React.FC<ChatPanelProps> = memo(({
       )}
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 pb-6 md:pb-24 space-y-5 scroll-smooth custom-scrollbar relative min-h-0">
+      <div className="relative flex-1 min-h-0">
+      <div ref={scrollRef as any} onScroll={onScroll} className="h-full overflow-y-auto custom-scrollbar relative">
+      <div ref={contentRef as any} className="p-4 pb-6 md:pb-24 space-y-5">
         {history.length === 0 && !agent.summary && (
           <div className="absolute inset-0 flex flex-col items-center justify-center opacity-30 select-none pointer-events-none">
             {/* Deliberately static. On WebKit -- the engine an iPad runs --
@@ -812,6 +937,31 @@ const ChatPanel: React.FC<ChatPanelProps> = memo(({
             />
           );
         })}
+
+        {queuedMessages.map(item => (
+          <QueuedMessageItem
+            key={item.id}
+            item={item}
+            onEdit={onEditQueuedMessage}
+            onRemove={onRemoveQueuedMessage}
+          />
+        ))}
+      </div>
+      </div>
+
+      {/* Volta ao fim — só aparece quando a lista não está mais colada no fim. */}
+      {!isAtBottom && (
+        <button
+          type="button"
+          onClick={() => scrollToBottom()}
+          title="Jump to latest"
+          className="absolute bottom-4 left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-lg transition-all hover:text-nebula-500 active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+          </svg>
+        </button>
+      )}
       </div>
 
 
@@ -824,7 +974,7 @@ const ChatPanel: React.FC<ChatPanelProps> = memo(({
             </div>
           </div>
         )}
-        <ChatInput onSend={onSendMessage} onStop={onStop} isGenerating={isGenerating} />
+        <ChatInput onSend={handleSend} onStop={onStop} isGenerating={isGenerating} />
       </div>
     </div>
   );
@@ -846,6 +996,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   agent,
   username,
   onSendMessage,
+  queuedMessages = [],
+  onEditQueuedMessage,
+  onRemoveQueuedMessage,
   onEditAgent,
   onClearSummary,
   isGenerating,
@@ -1237,7 +1390,21 @@ const approvalItems = React.useMemo(() => {
         pendingApproval={pendingApproval}
         hasCommandApproval={!!(pendingApproval && pendingApproval.agentId === agent.id)}
         hasApprovalsBadge={approvalItems.some((item) => item.unread)}
-        chatContent={<ChatPanel agent={agent} isGenerating={isGenerating} onSendMessage={onSendMessage} onClearSummary={onClearSummary} onStop={onStop} syncStatus={syncStatus} isChatVisible={isChatVisible} onToggleChat={onToggleChat} />}
+        chatContent={(
+          <ChatPanel
+            agent={agent}
+            isGenerating={isGenerating}
+            onSendMessage={onSendMessage}
+            queuedMessages={queuedMessages}
+            onEditQueuedMessage={onEditQueuedMessage}
+            onRemoveQueuedMessage={onRemoveQueuedMessage}
+            onClearSummary={onClearSummary}
+            onStop={onStop}
+            syncStatus={syncStatus}
+            isChatVisible={isChatVisible}
+            onToggleChat={onToggleChat}
+          />
+        )}
         isChatVisible={isChatVisible}
         shellState={shellState}
         canvas={canvas}
