@@ -523,7 +523,7 @@ router.post('/settings/prompt-package-sync-sources/:sourceKey/claude-plugins/dis
   } catch (error) {
     const status = error?.statusCode === 401 ? 401 : claudePluginStatus(error);
     const reason = error?.code || 'UNEXPECTED_ERROR';
-    return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 403 ? 'GitHub credential or source authorization unavailable' : status === 422 ? `GitHub could not resolve or read the configured source (${reason})` : 'Claude plugin discovery rejected', code: reason });
+    return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 403 ? 'GitHub credential or source authorization unavailable' : status === 422 ? `GitHub could not resolve or read the configured source (${reason})` : `Claude plugin discovery rejected (${reason})`, code: reason });
   }
 });
 
