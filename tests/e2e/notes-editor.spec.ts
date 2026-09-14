@@ -17,7 +17,10 @@ async function openSessionNote(page: Page) {
   await page.goto('');
   await page.locator('select').first().selectOption('ettore');
   await page.getByRole('button', { name: 'Open Session' }).click();
-  await page.getByRole('button', { name: 'Agents' }).waitFor({ state: 'visible', timeout: 30000 });
+  // A barra de mensagem é o sinal de shell montado que não depende do rail —
+  // que em certas larguras fica só com ícones — e o orçamento é generoso porque
+  // a sessão acumula notas a cada execução e o primeiro render vai ficando lento.
+  await page.locator('textarea[placeholder]').first().waitFor({ state: 'visible', timeout: 60000 });
 
   // A chat session is already open on load, so the canvas rail's Notes button
   // has a target and no agent needs to be picked first.
