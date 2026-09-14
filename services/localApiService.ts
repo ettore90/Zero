@@ -76,13 +76,22 @@ export async function localPatch<T = any>(path: string, body: object): Promise<T
     return res.json();
 }
 
+async function requestError(method: string, path: string, res: Response): Promise<Error> {
+    let detail = '';
+    try {
+        const body: unknown = await res.json();
+        if (body && typeof body === 'object' && 'error' in body && typeof (body as { error?: unknown }).error === 'string') detail = (body as { error: string }).error;
+    } catch { /* keep the bounded HTTP fallback */ }
+    return new Error(`${method} ${path} failed: ${res.status}${detail ? ` — ${detail}` : ''}`);
+}
+
 export async function localPut<T = any>(path: string, body: object): Promise<T> {
     const res = await fetch(`${LOCAL_BASE}${path}`, {
         method: 'PUT',
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`PUT ${path} failed: ${res.status}`);
+    if (!res.ok) throw await requestError('PUT', path, res);
     return res.json();
 }
 
