@@ -76,7 +76,10 @@ const CommandStream: React.FC<CommandStreamProps> = ({ history, pendingApproval,
   const pendingSensitiveCalls = Array.isArray(pendingApproval?.sensitiveCalls) ? pendingApproval.sensitiveCalls : [];
 
   return (
-    <div className="relative flex-1 min-h-0">
+    // `h-full`, não `flex-1`: o pai (CanvasViewport) não é flex container, então
+    // `flex-1` deixava a caixa crescer com o conteúdo e quem rolava era o
+    // wrapper de fora — era por isso que o stream não acompanhava mais nada.
+    <div className="relative h-full min-h-0">
     <div ref={viewportRef} onScroll={onScroll} className="h-full overflow-auto bg-slate-200 dark:bg-[#1e1e1e]">
       <div ref={streamRef} className="p-3 space-y-3 text-xs font-mono">
         {commandLog.length === 0 && (
