@@ -63,6 +63,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({ workflow, agents: agent
   const [showHistory, setShowHistory] = useState(false);
   const [showLive, setShowLive] = useState(false);
   const [liveFullscreen, setLiveFullscreen] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
   const [isCompactScreen, setIsCompactScreen] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -146,13 +147,13 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({ workflow, agents: agent
   return (
     <div className="flex flex-col overflow-hidden bg-white dark:bg-dark-950 text-slate-900 dark:text-slate-200 transition-colors" style={{ height: '100%' }}>
       {/* Top bar */}
-      <div className="h-14 shrink-0 flex items-center gap-3 px-5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-colors">
+      <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900 sm:flex-nowrap sm:gap-3 sm:px-5">
         <button onClick={onBack} className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800 transition-colors">
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
         </button>
-        <div className="w-px h-5 bg-slate-200 dark:bg-slate-800" />
+        <div className="hidden h-5 w-px bg-slate-200 dark:bg-slate-800 sm:block" />
         <input value={name} onChange={e => setName(e.target.value)}
-          className="bg-transparent text-sm font-bold text-slate-900 dark:text-white outline-none border-b border-transparent focus:border-slate-400 dark:focus:border-slate-600 transition-colors w-64 placeholder-slate-400 dark:placeholder-slate-600"
+          className="min-w-0 flex-1 border-b border-transparent bg-transparent text-sm font-bold text-slate-900 outline-none transition-colors placeholder-slate-400 focus:border-slate-400 dark:text-white dark:placeholder-slate-600 dark:focus:border-slate-600 sm:w-64 sm:flex-none"
           placeholder="Pipeline name..." />
         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
           <span className="w-1.5 h-1.5 rounded-full bg-nebula-500" />
@@ -164,7 +165,8 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({ workflow, agents: agent
             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{agent.name}</span>
           </div>
         )}
-        <div className="flex-1" />
+        <div className="hidden flex-1 sm:block" />
+        <button type="button" onClick={() => setShowConfig(true)} className="inline-flex min-h-9 items-center rounded-lg border border-slate-200 bg-slate-100 px-2.5 text-[11px] font-bold text-slate-600 transition-colors hover:text-slate-900 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400 dark:hover:text-white md:hidden">Config</button>
         {/* Live button */}
         <button onClick={() => {
           const next = !showLive;
@@ -202,7 +204,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({ workflow, agents: agent
       <div className="flex flex-1 overflow-hidden min-h-0">
 
         {/* ── Left sidebar — config ── */}
-        <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 overflow-y-auto transition-colors">
+        <div className="hidden w-80 shrink-0 overflow-y-auto border-r border-slate-200 bg-slate-50 transition-colors dark:border-slate-800 dark:bg-slate-900/50 md:block">
 
           {/* Config */}
           <div className="p-4 border-b border-slate-200 dark:border-slate-800 space-y-3">
@@ -366,12 +368,31 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({ workflow, agents: agent
         )}
 
         {/* ── Run History panel ── */}
-        {showHistory && (
+        {showHistory && !isCompactScreen && (
           <div className="w-72 shrink-0">
             <RunHistory workflowName={name} onClose={() => setShowHistory(false)} />
           </div>
         )}
       </div>
+
+      {showHistory && isCompactScreen && (
+        <div className="fixed inset-0 z-[70] bg-slate-950 md:hidden"><RunHistory workflowName={name} onClose={() => setShowHistory(false)} /></div>
+      )}
+
+      {showConfig && (
+        <div className="fixed inset-0 z-[70] bg-black/60 p-3 backdrop-blur-sm md:hidden" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowConfig(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="workflow-config-title" className="flex h-full w-full flex-col overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 text-slate-200 shadow-2xl">
+            <div className="sticky top-0 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-4 py-3"><h2 id="workflow-config-title" className="text-xs font-black uppercase tracking-widest text-slate-400">Pipeline config</h2><button type="button" onClick={() => setShowConfig(false)} aria-label="Close configuration" className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white">×</button></div>
+            <div className="p-4">
+              <label className={LC}>Agent</label><select value={agentId} onChange={e => setAgentId(e.target.value)} className={IC}>{agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+              <label className={`${LC} mt-4`}>Description</label><textarea value={description} onChange={e => setDescription(e.target.value)} rows={4} className={TA} placeholder="What does this pipeline do?" />
+              <div className="mt-5 border-t border-slate-800 pt-4"><div className="mb-3 flex items-center justify-between"><p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Schedule</p><button type="button" onClick={() => setSchedule(s => ({ ...s, enabled: !s.enabled }))} aria-pressed={schedule.enabled} className={`relative h-6 w-11 rounded-full transition-colors ${schedule.enabled ? 'bg-nebula-600' : 'bg-slate-700'}`}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${schedule.enabled ? 'translate-x-6' : 'translate-x-1'}`} /></button></div>
+              {schedule.enabled && <div className="space-y-3"><div><label className={LC}>Frequency</label><select value={schedule.type} onChange={e => setSchedule(s => ({ ...s, type: e.target.value as WorkflowSchedule['type'] }))} className={IC}><option value="once">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></div><div><label className={LC}>Time</label><input type="text" pattern="[0-9]{2}:[0-9]{2}" maxLength={5} value={schedule.time || ''} onChange={e => setSchedule(s => ({ ...s, time: e.target.value }))} className={IC} placeholder="09:00" /></div></div>}
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* ── Live Log fullscreen overlay ── */}
       {showLive && liveFullscreen && (

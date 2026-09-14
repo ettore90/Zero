@@ -175,7 +175,7 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
   ];
 
   const compactClassName = 'relative flex w-14 flex-col items-center';
-  const compactMenuClassName = `absolute bottom-[calc(100%+0.5rem)] left-1/2 flex h-auto -translate-x-1/2 flex-col gap-2 rounded-2xl border border-slate-200/90 bg-white/95 p-2 shadow-2xl backdrop-blur transition-all duration-200 ease-out dark:border-slate-800/80 dark:bg-slate-950/95 ${isCompactExpanded ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0'}`;
+  const compactMenuClassName = 'absolute bottom-[calc(100%+0.5rem)] left-1/2 flex h-auto -translate-x-1/2 flex-col gap-2 rounded-2xl border border-slate-200/90 bg-white/95 p-2 shadow-2xl backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/95';
   const compactToggleClassName = `relative flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nebula-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950 ${isCompactExpanded
     ? 'border-slate-300/90 bg-white text-slate-700 shadow-[0_12px_32px_rgba(15,23,42,0.18)] dark:border-white/10 dark:bg-white/[0.08] dark:text-white dark:shadow-[0_12px_32px_rgba(0,0,0,0.28)]'
     : 'border-slate-200/90 bg-white text-slate-700 shadow-[0_12px_32px_rgba(15,23,42,0.14)] backdrop-blur hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800/80 dark:bg-slate-950/95 dark:text-slate-100 dark:shadow-2xl dark:hover:border-white/10 dark:hover:bg-white/[0.045]'} `;
@@ -184,12 +184,14 @@ const CanvasRail: React.FC<CanvasRailProps> = ({ railState, railActions, compact
   if (compact) {
     return (
       <div className={compactClassName}>
-        <div className={compactMenuClassName} aria-hidden={!isCompactExpanded}>
-          <div className="flex flex-col gap-2">{upperRailButtons.map(renderRailButton)}</div>
-          <div className="flex flex-col gap-2 border-t border-slate-800/70 pt-1">
-            {lowerRailButtons.map(renderRailButton)}
+        {isCompactExpanded && (
+          <div className={compactMenuClassName}>
+            <div className="flex flex-col gap-2">{upperRailButtons.map(renderRailButton)}</div>
+            <div className="flex flex-col gap-2 border-t border-slate-800/70 pt-1">
+              {lowerRailButtons.map(renderRailButton)}
+            </div>
           </div>
-        </div>
+        )}
         <button
           type="button"
           onClick={handleCompactToggle}

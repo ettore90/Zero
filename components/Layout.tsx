@@ -151,6 +151,7 @@ const Layout: React.FC<LayoutProps> = ({
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const unreadCount = notifications.filter(n => !n.read).length;
 
   // Fix Chrome mobile viewport height — lock to window.innerHeight to prevent layout jump
@@ -196,6 +197,7 @@ const Layout: React.FC<LayoutProps> = ({
   // Stable identities so the memoized panels below are not re-rendered by
   // this component's own state (viewport lock, notification popover, menus).
   const navigateToChat = React.useCallback(() => { onSetView('chat'); }, [onSetView]);
+  const closeMobileNav = React.useCallback(() => setIsMobileNavOpen(false), []);
   const selectProjectFromMobile = React.useCallback((id: string) => {
     onSelectProject(id);
     toggleProjectPanel();
@@ -207,6 +209,7 @@ const Layout: React.FC<LayoutProps> = ({
     if (isSessionPanelOpen) toggleSessionPanel();
     if (showNotifications) setShowNotifications(false);
     if (showAccountMenu) setShowAccountMenu(false);
+    setIsMobileNavOpen(false);
   }, [isProjectPanelOpen, toggleProjectPanel, isOrchestrationPanelOpen, toggleOrchestrationPanel, isSessionPanelOpen, toggleSessionPanel, showNotifications, showAccountMenu]);
 
   // Apply Color Theme
@@ -320,8 +323,8 @@ const Layout: React.FC<LayoutProps> = ({
         />
       )}
 
-      {/* Mobile top bar with hamburger navigation */}
-      <div className="md:hidden fixed top-0 inset-x-0 z-50 flex items-center gap-2 px-3 py-2 bg-slate-900/95 dark:bg-dark-950/95 backdrop-blur border-b border-slate-800/60">
+      {/* Mobile top bar with compact global navigation */}
+      <div className="md:hidden fixed top-0 inset-x-0 z-50 flex items-center gap-2 px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] bg-slate-900/95 dark:bg-dark-950/95 backdrop-blur border-b border-slate-800/60">
         <button
           onClick={toggleSidebar}
           aria-label="Open agents"
@@ -360,6 +363,18 @@ const Layout: React.FC<LayoutProps> = ({
             )}
           </button>
           <button
+            onClick={() => setIsMobileNavOpen((open) => !open)}
+            aria-label="Open navigation"
+            aria-expanded={isMobileNavOpen}
+            className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${
+              isMobileNavOpen ? 'bg-nebula-600/20 ring-1 ring-nebula-500/30 text-nebula-400' : 'text-slate-300 hover:bg-slate-800/70'
+            }`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m-7-7h14" />
+            </svg>
+          </button>
+          <button
             onClick={toggleSessionPanel}
             aria-label="Open sessions"
             className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${
@@ -373,8 +388,25 @@ const Layout: React.FC<LayoutProps> = ({
         </div>
       </div>
 
+      {isMobileNavOpen && (
+        <>
+          <button type="button" aria-label="Close navigation" onClick={closeMobileNav} className="fixed inset-0 z-40 bg-black/60 md:hidden" />
+          <nav aria-label="Main navigation" className="fixed left-3 right-3 top-[calc(3.75rem+env(safe-area-inset-top))] z-[60] grid grid-cols-2 gap-2 rounded-2xl border border-slate-700/70 bg-slate-900/95 p-2 shadow-2xl backdrop-blur md:hidden">
+            {navItems.map((item) => (
+              <button key={item.id} type="button" onClick={() => { item.action(); closeMobileNav(); }} className={`flex min-h-11 items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-bold transition-colors ${(item.activeOverride !== undefined ? item.activeOverride : currentView === item.id) ? 'bg-nebula-600/20 text-nebula-300 ring-1 ring-nebula-500/30' : 'text-slate-300 hover:bg-slate-800'}`}>
+                <span className="shrink-0">{item.icon}</span><span className="truncate">{item.label}</span>
+              </button>
+            ))}
+            <button type="button" onClick={() => { toggleTerminal(); closeMobileNav(); }} className={`flex min-h-11 items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-bold transition-colors ${showTerminal ? 'bg-nebula-600/20 text-nebula-300' : 'text-slate-300 hover:bg-slate-800'}`}>Terminal</button>
+            <button type="button" onClick={() => { toggleConsole(); closeMobileNav(); }} className={`flex min-h-11 items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-bold transition-colors ${showConsole ? 'bg-nebula-600/20 text-nebula-300' : 'text-slate-300 hover:bg-slate-800'}`}>Logs</button>
+            <button type="button" onClick={() => { setShowNotifications((shown) => !shown); closeMobileNav(); }} className="flex min-h-11 items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-300 transition-colors hover:bg-slate-800">Notifications{unreadCount > 0 ? ` (${unreadCount})` : ''}</button>
+            <button type="button" onClick={() => { onOpenScheduler(); closeMobileNav(); }} className="flex min-h-11 items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-bold text-slate-300 transition-colors hover:bg-slate-800">Scheduler</button>
+          </nav>
+        </>
+      )}
+
       {/* Mobile: AgentPanel fixed slide-over */}
-      <div className={`md:hidden fixed top-14 bottom-0 left-0 z-50 w-72 max-w-[calc(100vw-3rem)] transition-transform duration-300 ease-in-out ${
+      <div className={`md:hidden fixed top-[calc(3.5rem+env(safe-area-inset-top))] bottom-0 left-0 z-50 w-72 max-w-[calc(100vw-3rem)] transition-transform duration-300 ease-in-out ${
         isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
         <AgentPanel
@@ -389,7 +421,7 @@ const Layout: React.FC<LayoutProps> = ({
       </div>
 
       {/* Mobile: SessionPanel fixed slide-over */}
-      <div className={`md:hidden fixed top-14 bottom-0 left-0 z-50 w-72 max-w-[calc(100vw-3rem)] transition-transform duration-300 ease-in-out ${
+      <div className={`md:hidden fixed top-[calc(3.5rem+env(safe-area-inset-top))] bottom-0 left-0 z-50 w-72 max-w-[calc(100vw-3rem)] transition-transform duration-300 ease-in-out ${
         isSessionPanelOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
         <SessionPanel
@@ -702,7 +734,7 @@ const Layout: React.FC<LayoutProps> = ({
       </div>
 
       {/* Mobile: Project Panel fixed slide-over */}
-      <div className={`md:hidden fixed inset-y-0 left-0 z-50 w-72 max-w-[calc(100vw-3rem)] transition-transform duration-300 ease-in-out ${
+      <div className={`md:hidden fixed bottom-0 left-0 top-[env(safe-area-inset-top)] z-50 w-72 max-w-[calc(100vw-3rem)] transition-transform duration-300 ease-in-out ${
         currentView === 'chat' ? '-translate-x-full' : (isProjectPanelOpen ? 'translate-x-0' : '-translate-x-full')
       }`}>
         <ProjectPanel
@@ -737,7 +769,7 @@ const Layout: React.FC<LayoutProps> = ({
       {/* ------------------------------------------------------------------ */}
       {/* Main content area                                                    */}
       {/* ------------------------------------------------------------------ */}
-      <main className="flex-1 flex flex-row h-full w-full bg-white dark:bg-dark-950 transition-colors overflow-hidden pt-14 md:pt-0">
+      <main className="flex-1 flex flex-row h-full w-full bg-white dark:bg-dark-950 transition-colors overflow-hidden pt-[calc(3.5rem+env(safe-area-inset-top))] md:pt-0">
         {children}
       </main>
 
@@ -746,7 +778,7 @@ const Layout: React.FC<LayoutProps> = ({
       {/* ------------------------------------------------------------------ */}
       <DebugConsole logs={logs} isOpen={showConsole} onToggle={toggleConsole} onClear={clearLogs} />
       {showTerminal && (
-        <div className="fixed bottom-0 left-0 md:left-14 right-0 z-40 h-72 border-t border-slate-700/60 shadow-2xl">
+        <div className="fixed bottom-0 left-0 md:left-14 right-0 z-40 h-[calc(18rem+env(safe-area-inset-bottom))] border-t border-slate-700/60 shadow-2xl">
           <TerminalPanel
             sessionId="main-terminal"
             basePath={window.location.pathname.split("/").filter(Boolean)[0] ? "/" + window.location.pathname.split("/").filter(Boolean)[0] : ""}

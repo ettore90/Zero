@@ -99,7 +99,17 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
   const [openCommentKey, setOpenCommentKey] = useState<ChecklistItemIdentity | null>(null);
   const hasCommentSupport = typeof onCommentItem === 'function' && !readOnly;
   const nextLocalKeyRef = useRef(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const COMMENT_MAX_LENGTH = 4000;
+
+  useEffect(() => {
+    if (embedded) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onReject?.(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => { window.removeEventListener('keydown', onKeyDown); previouslyFocused?.focus(); };
+  }, [embedded, onReject]);
 
   useEffect(() => {
     setItems(structuredChecklist);
@@ -185,13 +195,13 @@ export const StrategyPlanModal: React.FC<StrategyPlanModalProps> = ({
   };
 
   return (
-    <div className={embedded ? 'flex h-full min-h-0 min-w-0 w-full items-stretch justify-stretch bg-white dark:bg-slate-950' : 'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4'}>
-      <div className={embedded ? 'flex h-full min-h-0 min-w-0 w-full flex-col bg-white text-slate-800 dark:bg-transparent dark:text-slate-100' : 'w-full max-w-xl max-h-[90vh] flex flex-col rounded-2xl border border-slate-200 bg-white text-slate-800 shadow-2xl dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-100'}>
+    <div className={embedded ? 'flex h-full min-h-0 min-w-0 w-full items-stretch justify-stretch bg-white dark:bg-slate-950' : 'fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm'} role={embedded ? undefined : 'presentation'} onMouseDown={embedded ? undefined : (event) => { if (event.target === event.currentTarget) onReject?.(); }}>
+      <div ref={dialogRef} tabIndex={-1} role={embedded ? undefined : 'dialog'} aria-modal={embedded ? undefined : true} aria-labelledby={embedded ? undefined : 'strategy-plan-title'} className={embedded ? 'flex h-full min-h-0 min-w-0 w-full flex-col bg-white text-slate-800 dark:bg-transparent dark:text-slate-100' : 'flex w-full max-h-[90vh] max-w-xl flex-col rounded-2xl border border-slate-200 bg-white text-slate-800 shadow-2xl outline-none dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-100'}>
         <div className="flex items-start gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <div className="w-9 h-9 rounded-xl bg-indigo-500/20 flex items-center justify-center text-xl shrink-0">🧠</div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="truncate text-sm font-bold text-slate-900 dark:text-white">{plan.title ?? 'Execution Plan'}</h2>
+              <h2 id={embedded ? undefined : 'strategy-plan-title'} className="truncate text-sm font-bold text-slate-900 dark:text-white">{plan.title ?? 'Execution Plan'}</h2>
               {statusLabel && <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusClass}`}>{statusLabel}</span>}
               {hasRisks && <span className="shrink-0 rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">⚠ risks</span>}
             </div>

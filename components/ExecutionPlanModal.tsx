@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ToolCall } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -91,6 +91,15 @@ export const ExecutionPlanModal: React.FC<ExecutionPlanModalProps> = ({
 
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editedArgs, setEditedArgs] = useState<Record<number, string>>({});
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => { window.removeEventListener('keydown', onKeyDown); previouslyFocused?.focus(); };
+  }, [onCancel]);
 
   const hasDestructive = steps.some(s => s.risk === 'destructive');
 
@@ -112,13 +121,13 @@ export const ExecutionPlanModal: React.FC<ExecutionPlanModalProps> = ({
   const riskLabel = { safe: 'safe', caution: 'caution', destructive: '⚠ destructive' };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-700/60 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="execution-plan-title" className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-slate-700/60 bg-slate-900 shadow-2xl outline-none">
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-800">
           <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 text-lg">📋</div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-bold text-white">Execution Plan</h2>
+            <h2 id="execution-plan-title" className="text-sm font-bold text-white">Execution Plan</h2>
             <p className="text-xs text-slate-400">{agentName} wants to run {steps.length} operations</p>
           </div>
           {hasDestructive && (
