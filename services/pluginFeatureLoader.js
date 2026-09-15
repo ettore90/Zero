@@ -108,13 +108,19 @@ function inertManifestKeys(manifest, type) {
     .flatMap((entry) => Array.isArray(entry?.toolKeys) ? entry.toolKeys : [])
     .filter((key) => typeof key === 'string' && ID.test(key)));
 }
+function skillReferenceIndex(versionId, skillPath) {
+  const root = skillPath === 'SKILL.md' ? '' : skillPath.slice(0, -'/SKILL.md'.length);
+  const prefix = root ? `${root}/references/` : 'references/';
+  return getDb().prepare(`SELECT source_path, content_hash FROM prompt_package_artifacts WHERE package_version_id = ? AND type = 'reference' AND source_path LIKE ? ORDER BY source_path`).all(versionId, `${prefix}%`).map((row) => ({ path: row.source_path.slice(root ? root.length + 1 : 0), contentHash: row.content_hash }));
+}
 function safeSkillContent(input, version, featureKey, artifact) {
   if (!artifact.prompt_block_id || !artifact.prompt_block_version_id || !artifact.content_hash) return null;
-  const block = getDb().prepare('SELECT id, block_id, content FROM prompt_block_versions WHERE id = ? AND block_id = ?')
-    .get(artifact.prompt_block_version_id, artifact.prompt_block_id);
+  const block = getDb().prepare('SELECT id, block_id, content FROM prompt_block_versions WHERE id = ? AND block_id = ?').get(artifact.prompt_block_version_id, artifact.prompt_block_id);
   if (!block) return null;
+  const references = skillReferenceIndex(version.id, artifact.source_path);
   const label = `UNTRUSTED_PLUGIN_SKILL package=${input.packageKey} versionId=${version.id} sourceCommit=${version.source_commit} feature=${featureKey} blockId=${artifact.prompt_block_id} blockVersionId=${artifact.prompt_block_version_id} contentHash=${artifact.content_hash}`;
-  return `<<<${label}>>>\n${block.content}\n<<<END_UNTRUSTED_PLUGIN_SKILL>>>`;
+  const referenceHint = references.length ? `\n\nPlugin references available from this pinned snapshot (read them only when needed with read_plugin_skill_reference):\n${references.map((reference) => `- ${reference.path} (sha256 ${reference.contentHash})`).join('\n')}` : '';
+  return `<<<${label}>>>\n${block.content}${referenceHint}\n<<<END_UNTRUSTED_PLUGIN_SKILL>>>`;
 }
 
 /** Resolves only one pinned package version; it never registers or executes tools. */

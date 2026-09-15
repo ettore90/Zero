@@ -25,6 +25,7 @@ import { pendingApprovals } from './services/runtime.js';
 import { appendCommentToPlanItem, broadcastPlanUpdate, findLatestInProgressPlanForAgent, markPlanItemCompleted, normalizePlanForStorage, persistPlanRecord } from './services/planState.js';
 import { areSessionNotesEnabled } from './services/toolAccessPolicy.js';
 import { loadPluginFeaturesForAgent } from './services/pluginFeatureLoader.js';
+import { readPluginSkillReference } from './services/pluginSkillReferenceReader.js';
 import { inspectPluginForAuthorizedCaller, listPluginCatalogForAuthorizedCaller } from './services/pluginCatalog.js';
 import { searchCode } from './services/codeSearch.js';
 import { atlassianMcpCall, atlassianMcpTools, atlassianMcpStatus } from './services/atlassianMcpService.js';
@@ -659,6 +660,10 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
 
     // Identity is exclusively supplied by server dispatch parameters. This branch only
     // returns loader output; it never registers an MCP tool or transport dynamically.
+    if (toolName === 'read_plugin_skill_reference') {
+        try { return readPluginSkillReference({ ...args, agentId: String(agentId || ''), username: String(username || ''), ...(ctx?.sessionId ? { sessionId: ctx.sessionId } : {}), ...(ctx?.executionId ? { executionId: ctx.executionId } : {}) }); } catch (error) { return { error: error.message }; }
+    }
+
     if (toolName === 'load_plugin_features') {
         const input = args && typeof args === 'object' && !Array.isArray(args) ? args : null;
         if (!input) return { error: 'load_plugin_features arguments must be an object' };

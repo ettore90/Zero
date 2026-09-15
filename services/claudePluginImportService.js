@@ -7,7 +7,9 @@ import { getVisibleAgent } from './agentStore.js';
 import { getOrBootstrapPromptDocumentByAgent } from './promptStore.js';
 import { upsertPluginAccessGrant } from './pluginAccessStore.js';
 
-const MAX_PLUGIN_FILES = 64;
+const MAX_PLUGIN_FILES = 96;
+const MAX_SKILL_REFERENCES = 24;
+const REFERENCE_TOKEN = /(?:\[[^\]]*\]\(|`?)(references\/[A-Za-z0-9][A-Za-z0-9._/-]*\.md)(?:\)|`?)/g;
 const SOURCE_KEY = /^github:([a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*)@([^\s]+)$/;
 
 export class ClaudePluginImportError extends Error {
@@ -54,9 +56,25 @@ async function discover(sourceKey, fetchImpl) {
   if (needed.size > MAX_PLUGIN_FILES) fail('TOO_MANY_PLUGIN_FILES');
   let fetched;
   try { fetched = await fetchPinnedGithubPromptFiles({ sourcePin, paths: [...needed], fetchImpl }); } catch (error) { remoteFail(error); }
+  // References are opt-in: only Markdown paths explicitly named by a SKILL.md,
+  // resolved below that skill's own directory, are added to the immutable snapshot.
+  const referencePaths = new Set();
+  for (const skill of fetched.files.filter((file) => file.path.endsWith('/SKILL.md') || file.path === 'SKILL.md')) {
+    const root = skill.path === 'SKILL.md' ? '' : skill.path.slice(0, -'/SKILL.md'.length);
+    for (const match of skill.content.matchAll(REFERENCE_TOKEN)) {
+      const relative = match[1]; const resolved = root ? `${root}/${relative}` : relative;
+      if (!resolved.startsWith(root ? `${root}/references/` : 'references/') || resolved.includes('..')) fail('INVALID_SKILL_REFERENCE');
+      referencePaths.add(resolved);
+    }
+  }
+  if (referencePaths.size > MAX_SKILL_REFERENCES || needed.size + referencePaths.size > MAX_PLUGIN_FILES) fail('TOO_MANY_PLUGIN_REFERENCES');
+  const additional = [...referencePaths].filter((path) => !needed.has(path));
+  if (additional.length) {
+    try { const extra = await fetchPinnedGithubPromptFiles({ sourcePin, paths: additional, fetchImpl }); fetched = { ...fetched, files: [...fetched.files, ...extra.files] }; } catch (error) { remoteFail(error); }
+  }
   let discovered;
-  try { discovered = discoverClaudePluginManifests({ sourcePin, files: fetched.files.map(({ path, content, contentHash }) => ({ path, content, contentHash })) }); } catch (error) { fail(typeof error?.code === 'string' ? error.code : 'INVALID_PLUGIN_CONTENT'); }
-  return { source, sourcePin, fetched, manifests: discovered.manifests };
+  try { discovered = discoverClaudePluginManifests({ sourcePin, files: fetched.files.filter((file) => needed.has(file.path)).map(({ path, content, contentHash }) => ({ path, content, contentHash })) }); } catch (error) { fail(typeof error?.code === 'string' ? error.code : 'INVALID_PLUGIN_CONTENT'); }
+  return { source, sourcePin, fetched, referencePaths, manifests: discovered.manifests };
 }
 
 /** Read-only discovery: configured source is the sole input identity. */
@@ -80,11 +98,12 @@ export async function importClaudePluginFromSource(input) {
   const packageKey = safeId(manifest.metadata.claudePlugin.name);
   const skills = manifest.skills;
   if (!skills.length) fail('INVALID_PLUGIN_CONTENT');
-  const files = result.fetched.files.filter((file) => skills.some((skill) => skill.path === file.path)).map(({ path, content }) => ({ path, content }));
-  const artifactMappings = skills.map((skill, position) => ({ artifactKey: `${safeId(skill.path.slice(0, -'/SKILL.md'.length))}-skill`, blockKey: `${packageKey}-${safeId(skill.key)}`, blockType: 'text', included: true, position, metadata: {} }));
+  const files = result.fetched.files.filter((file) => skills.some((skill) => skill.path === file.path) || result.referencePaths.has(file.path)).map(({ path, content }) => ({ path, content }));
+  const references = [...result.referencePaths].map((sourcePath) => ({ sourcePath }));
+  const artifactMappings = files.map((file, position) => { const skill = skills.find((entry) => entry.path === file.path); return skill ? { artifactKey: `${safeId(skill.path.slice(0, -'/SKILL.md'.length))}-skill`, blockKey: `${packageKey}-${safeId(skill.key)}`, blockType: 'text', included: true, position, metadata: {} } : { artifactKey: `${safeId(file.path.slice(0, -3))}-reference`, blockKey: `${packageKey}-reference-${safeId(file.path.slice(0, -3))}`, blockType: 'text', included: false, position, metadata: {} }; });
   let staged;
   try {
-    staged = stagePinnedGithubPromptPackage({ sourcePin: result.sourcePin, package: { packageKey, source: 'github', repository: result.sourcePin.repository, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered', sourceCommit: result.sourcePin.commit, sourceRef: result.sourcePin.ref, manifest }, files, documentKey, artifactMappings, details: { origin: 'claude_plugin_source_import' }, ...(input.actor ? { actor: input.actor } : {}) });
+    staged = stagePinnedGithubPromptPackage({ sourcePin: result.sourcePin, package: { packageKey, source: 'github', repository: result.sourcePin.repository, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered', sourceCommit: result.sourcePin.commit, sourceRef: result.sourcePin.ref, manifest }, files, references, documentKey, artifactMappings, details: { origin: 'claude_plugin_source_import' }, ...(input.actor ? { actor: input.actor } : {}) });
   } catch { fail('STAGING_FAILED'); }
   try {
     upsertPromptPackageSyncJob({ sourceKey: input.sourceKey, enabled: true, intervalSeconds: 3600, descriptor: { schemaVersion: 1, sourcePin: result.sourcePin, manifestPath: pluginRoot ? `${pluginRoot}/.claude-plugin/plugin.json` : '.claude-plugin/plugin.json', artifactPaths: skills.map((skill) => skill.path) }, package: { packageKey, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered' }, documentKey, artifactMappings, details: { origin: 'claude_plugin_source_import' }, ...(input.actor ? { createdBy: input.actor } : {}) });
@@ -102,10 +121,11 @@ export async function syncClaudePluginJob(input) {
   const manifest = pluginRoot === null ? null : result.manifests.find((item) => item.metadata.claudePlugin.root === pluginRoot);
   if (!manifest?.skills?.length) fail('INVALID_PLUGIN_CONTENT');
   const packageKey = safeId(manifest.metadata.claudePlugin.name);
-  const files = result.fetched.files.filter((file) => manifest.skills.some((skill) => skill.path === file.path)).map(({ path, content }) => ({ path, content }));
+  const files = result.fetched.files.filter((file) => manifest.skills.some((skill) => skill.path === file.path) || result.referencePaths.has(file.path)).map(({ path, content }) => ({ path, content }));
+  const references = [...result.referencePaths].map((sourcePath) => ({ sourcePath }));
   const suffix = result.sourcePin.commit.slice(0, 12);
-  const artifactMappings = manifest.skills.map((skill, position) => ({ artifactKey: `${safeId(skill.path.slice(0, -'/SKILL.md'.length))}-skill`, blockKey: `${packageKey}-${safeId(skill.key)}-${suffix}`, blockType: 'text', included: false, position, metadata: {} }));
+  const artifactMappings = files.map((file, position) => { const skill = manifest.skills.find((entry) => entry.path === file.path); return skill ? { artifactKey: `${safeId(skill.path.slice(0, -'/SKILL.md'.length))}-skill`, blockKey: `${packageKey}-${safeId(skill.key)}-${suffix}`, blockType: 'text', included: false, position, metadata: {} } : { artifactKey: `${safeId(file.path.slice(0, -3))}-reference`, blockKey: `${packageKey}-reference-${safeId(file.path.slice(0, -3))}-${suffix}`, blockType: 'text', included: false, position, metadata: {} }; });
   let staged;
-  try { staged = stagePinnedGithubPromptPackage({ sourcePin: result.sourcePin, package: { packageKey, source: 'github', repository: result.sourcePin.repository, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered', sourceCommit: result.sourcePin.commit, sourceRef: result.sourcePin.ref, manifest }, files, documentKey: input.documentKey, artifactMappings, details: { origin: 'claude_plugin_scheduler' }, actor: input.createdBy }); } catch { fail('STAGING_FAILED'); }
+  try { staged = stagePinnedGithubPromptPackage({ sourcePin: result.sourcePin, package: { packageKey, source: 'github', repository: result.sourcePin.repository, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered', sourceCommit: result.sourcePin.commit, sourceRef: result.sourcePin.ref, manifest }, files, references, documentKey: input.documentKey, artifactMappings, details: { origin: 'claude_plugin_scheduler' }, actor: input.createdBy }); } catch { fail('STAGING_FAILED'); }
   return { ...staged, sourceKey: input.sourceKey, resolvedCommit: result.sourcePin.commit };
 }

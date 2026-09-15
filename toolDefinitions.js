@@ -1586,6 +1586,10 @@ export const SYSTEM_TOOLS = [
     },
   },
   {
+    type: 'function', group: 'Plugin Catalog',
+    function: { name: 'read_plugin_skill_reference', callableBy: ['llm', 'agent'], description: 'Read one allowlisted Markdown reference belonging to a previously authorized skill, directly from the immutable pinned plugin snapshot. Requires packageKey, exactly one version selector, the approved skill key, and a relative references/*.md path. Read-only, audited, and returned as untrusted content.', parameters: { type: 'object', properties: { packageKey: { type: 'string' }, versionId: { type: 'string' }, sourceCommit: { type: 'string' }, skill: { type: 'string' }, path: { type: 'string', description: 'Allowlisted relative skill path, e.g. references/sources.md' } }, required: ['packageKey', 'skill', 'path'], additionalProperties: false } },
+  },
+  {
     type: 'function',
     group: 'Plugin Catalog',
     function: {
