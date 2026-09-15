@@ -55,7 +55,7 @@ async function discover(sourceKey, fetchImpl) {
   let fetched;
   try { fetched = await fetchPinnedGithubPromptFiles({ sourcePin, paths: [...needed], fetchImpl }); } catch (error) { remoteFail(error); }
   let discovered;
-  try { discovered = discoverClaudePluginManifests({ sourcePin, files: fetched.files.map(({ path, content, contentHash }) => ({ path, content, contentHash })) }); } catch { fail('INVALID_PLUGIN_CONTENT'); }
+  try { discovered = discoverClaudePluginManifests({ sourcePin, files: fetched.files.map(({ path, content, contentHash }) => ({ path, content, contentHash })) }); } catch (error) { fail(typeof error?.code === 'string' ? error.code : 'INVALID_PLUGIN_CONTENT'); }
   return { source, sourcePin, fetched, manifests: discovered.manifests };
 }
 
