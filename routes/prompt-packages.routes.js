@@ -537,7 +537,8 @@ router.post('/settings/prompt-package-sync-sources/:sourceKey/claude-plugins/imp
     return res.status(result.changed ? 201 : 200).json({ package: result.package, version: result.version, artifacts: result.artifacts, event: result.event, changed: result.changed, sourceKey: result.sourceKey, resolvedCommit: result.resolvedCommit });
   } catch (error) {
     const status = error?.statusCode === 401 ? 401 : claudePluginStatus(error);
-    return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 500 ? 'unable to import Claude plugin' : 'Claude plugin import rejected' });
+    const reason = error?.code || 'UNEXPECTED_ERROR';
+    return res.status(status).json({ error: status === 401 ? 'authentication required' : status === 403 ? 'GitHub credential or source authorization unavailable' : status === 422 ? `GitHub could not resolve or read the configured source (${reason})` : status === 500 ? 'unable to import Claude plugin' : `Claude plugin import rejected (${reason})`, code: reason });
   }
 });
 
