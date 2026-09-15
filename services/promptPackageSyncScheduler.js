@@ -1,6 +1,7 @@
 import { listPromptPackageSyncJobs } from './promptPackageSyncJobStore.js';
 import { getPromptPackageSyncSource, recordPromptPackageSyncCheckpoint } from './promptPackageSyncConfigStore.js';
 import { syncPinnedGithubPromptPackageManually } from './promptPackageSyncService.js';
+import { syncClaudePluginJob } from './claudePluginImportService.js';
 import { normalizePinnedGithubPromptDescriptor, resolveGithubRefToCommit } from './pinnedGithubPromptClient.js';
 import { createGithubPrivateReadFetch } from './githubPrivateAccessProvider.js';
 
@@ -169,6 +170,7 @@ export function createPromptPackageSyncScheduler(options = {}) {
   const listJobs = typeof options.listJobs === 'function' ? options.listJobs : listPromptPackageSyncJobs;
   const getSource = typeof options.getSource === 'function' ? options.getSource : getPromptPackageSyncSource;
   const sync = typeof options.sync === 'function' ? options.sync : syncPinnedGithubPromptPackageManually;
+  const syncClaude = typeof options.syncClaude === 'function' ? options.syncClaude : syncClaudePluginJob;
   const recordCheckpoint = typeof options.recordCheckpoint === 'function' ? options.recordCheckpoint : recordPromptPackageSyncCheckpoint;
   const now = typeof options.now === 'function' ? options.now : () => Math.floor(Date.now() / 1000);
   const setIntervalFn = typeof options.setIntervalFn === 'function' ? options.setIntervalFn : globalThis.setInterval;
@@ -285,9 +287,19 @@ export function createPromptPackageSyncScheduler(options = {}) {
             timeoutMs,
           });
           if (!active(workGeneration)) return false;
-          if (source.lastStagedCommit === resolved.commit) {
-            await recordCheckpoint({ sourceKey, lastSeenCommit: resolved.commit, lastSyncAt: nowSeconds, lastError: null });
+          // Claude-plugin imports initially persisted their immutable descriptor before
+          // checkpointing existed. Treat its pinned commit as already staged so enabling
+          // the scheduler cannot duplicate that version on its first tick.
+          const descriptorCommit = job.descriptor?.sourcePin?.commit;
+          if (source.lastStagedCommit === resolved.commit || (job.details?.origin === 'claude_plugin_source_import' && descriptorCommit === resolved.commit)) {
+            await recordCheckpoint({ sourceKey, lastSeenCommit: resolved.commit, lastStagedCommit: resolved.commit, lastSyncAt: nowSeconds, lastError: null });
             return true;
+          }
+          const isClaudePluginJob = job.details?.origin === 'claude_plugin_source_import';
+          if (isClaudePluginJob) {
+            await syncClaude({ sourceKey, manifestPath: job.descriptor?.manifestPath, documentKey: job.documentKey, createdBy: job.createdBy || SCHEDULER_ACTOR, fetchImpl });
+            await recordCheckpoint({ sourceKey, lastSeenCommit: resolved.commit, lastStagedCommit: resolved.commit, lastSyncAt: nowSeconds, lastError: null });
+            return active(workGeneration);
           }
           const input = safeSyncInput(job, fetchImpl, timeoutMs, resolved.commit);
           if (!input) {

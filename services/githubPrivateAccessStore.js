@@ -96,10 +96,11 @@ export function decideGithubPrivateAccessRequest(input) {
   if (!DECISIONS.has(input.status)) fail('status must be approved or rejected');
   const decidedBy = actor(input.decidedBy, 'decidedBy');
   const decidedAt = timestamp(input.decidedAt, 'decidedAt', Math.floor(Date.now() / 1000));
-  const expiresAt = input.status === 'approved' ? timestamp(input.expiresAt, 'expiresAt', null) : null;
-  if (input.status === 'approved' && expiresAt === null) fail('expiresAt is required for approved status');
-  if (input.status === 'approved' && expiresAt <= decidedAt) fail('expiresAt must be after decidedAt');
+  // Read authorization is persistent until explicitly revoked. A legacy expiry may
+  // be accepted only to keep old API clients compatible, but it is not persisted.
+  if (input.status === 'approved' && OWN.call(input, 'expiresAt')) timestamp(input.expiresAt, 'expiresAt', decidedAt + 1);
   if (input.status === 'rejected' && OWN.call(input, 'expiresAt')) fail('expiresAt is only supported for approved status');
+  const expiresAt = null;
   const db = getDb();
   return db.transaction(() => {
     const row = db.prepare('SELECT * FROM github_private_access_requests WHERE id = ? AND owner_username = ?').get(requestId, ownerUsername);
@@ -140,8 +141,9 @@ export function getEffectiveGithubPrivateAccessAuthorization(input) {
   const at = timestamp(input.at, 'at', Math.floor(Date.now() / 1000));
   const row = getDb().prepare(`SELECT * FROM github_private_access_requests
     WHERE owner_username = ? AND source_repository = ? AND source_ref = ?
-      AND purpose = 'read_only' AND status = 'approved' AND expires_at > ?
-    ORDER BY expires_at DESC, decided_at DESC, id DESC LIMIT 1`).get(ownerUsername, requestedSource.repository, requestedSource.ref, at);
+      AND purpose = 'read_only' AND status = 'approved'
+      AND (expires_at IS NULL OR expires_at > ?)
+    ORDER BY decided_at DESC, id DESC LIMIT 1`).get(ownerUsername, requestedSource.repository, requestedSource.ref, at);
   return toRequest(row);
 }
 

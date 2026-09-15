@@ -36,6 +36,7 @@ export function initDb(dbPath) {
   _ensureRuntimeSchema(_db);
   _migratePluginAccessGrants(_db);
   _migrateGithubPrivateAccessToRefScope(_db);
+  _migrateGithubPrivateAccessToPersistent(_db);
   _migratePromptPackageSyncSourcesToRefs(_db);
   _createSchema(_db);
   _ensureRuntimeSchema(_db);
@@ -577,7 +578,7 @@ function _createSchema(db) {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       CHECK ((status = 'pending' AND decided_at IS NULL AND expires_at IS NULL AND revoked_at IS NULL)
-        OR (status = 'approved' AND decided_at IS NOT NULL AND expires_at IS NOT NULL AND revoked_at IS NULL)
+        OR (status = 'approved' AND decided_at IS NOT NULL AND revoked_at IS NULL)
         OR (status = 'rejected' AND decided_at IS NOT NULL AND expires_at IS NULL AND revoked_at IS NULL)
         OR (status = 'revoked' AND decided_at IS NOT NULL AND expires_at IS NOT NULL AND revoked_at IS NOT NULL))
     );
@@ -877,6 +878,45 @@ function _migratePromptPackageSyncSourcesToRefs(db) {
   finally { if (foreignKeysWereEnabled) db.pragma('foreign_keys = ON'); }
 }
 
+function _migrateGithubPrivateAccessToPersistent(db) {
+  const columns = db.prepare('PRAGMA table_info(github_private_access_requests)').all();
+  if (!columns.length) return;
+  const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='github_private_access_requests'").get()?.sql || '';
+  if (schema.includes("status = 'approved' AND decided_at IS NOT NULL AND revoked_at IS NULL)")) return;
+  const foreignKeysWereEnabled = db.pragma('foreign_keys', { simple: true }) === 1;
+  try {
+    if (foreignKeysWereEnabled) db.pragma('foreign_keys = OFF');
+    db.exec('BEGIN IMMEDIATE');
+    db.exec(`ALTER TABLE github_private_access_events RENAME TO github_private_access_events_legacy;
+      ALTER TABLE github_private_access_requests RENAME TO github_private_access_requests_legacy;
+      CREATE TABLE github_private_access_requests (
+        id TEXT PRIMARY KEY, owner_username TEXT NOT NULL, source_repository TEXT NOT NULL, source_ref TEXT NOT NULL,
+        purpose TEXT NOT NULL CHECK (purpose = 'read_only'), status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'revoked')),
+        requested_by TEXT, decided_by TEXT, requested_at INTEGER NOT NULL, decided_at INTEGER, expires_at INTEGER,
+        revoked_by TEXT, revoked_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        CHECK ((status = 'pending' AND decided_at IS NULL AND expires_at IS NULL AND revoked_at IS NULL)
+          OR (status = 'approved' AND decided_at IS NOT NULL AND revoked_at IS NULL)
+          OR (status = 'rejected' AND decided_at IS NOT NULL AND expires_at IS NULL AND revoked_at IS NULL)
+          OR (status = 'revoked' AND decided_at IS NOT NULL AND revoked_at IS NOT NULL))
+      );
+      CREATE TABLE github_private_access_events (
+        id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES github_private_access_requests(id) ON DELETE CASCADE,
+        owner_username TEXT NOT NULL, source_repository TEXT NOT NULL, source_ref TEXT NOT NULL,
+        purpose TEXT NOT NULL CHECK (purpose = 'read_only'), event TEXT NOT NULL CHECK (event IN ('requested', 'approved', 'rejected', 'revoked')),
+        actor TEXT, occurred_at INTEGER NOT NULL
+      );
+      INSERT INTO github_private_access_requests SELECT id, owner_username, source_repository, source_ref, purpose, status, requested_by, decided_by, requested_at, decided_at, CASE WHEN status = 'approved' THEN NULL ELSE expires_at END, revoked_by, revoked_at, created_at, updated_at FROM github_private_access_requests_legacy;
+      INSERT INTO github_private_access_events SELECT id, request_id, owner_username, source_repository, source_ref, purpose, event, actor, occurred_at FROM github_private_access_events_legacy;
+      DROP TABLE github_private_access_events_legacy; DROP TABLE github_private_access_requests_legacy;
+      CREATE INDEX idx_github_private_access_requests_owner ON github_private_access_requests(owner_username, requested_at DESC, id DESC);
+      CREATE INDEX idx_github_private_access_requests_effective ON github_private_access_requests(owner_username, source_repository, source_ref, purpose, status, expires_at DESC);
+      CREATE INDEX idx_github_private_access_events_request ON github_private_access_events(request_id, occurred_at ASC, id ASC);
+      CREATE INDEX idx_github_private_access_events_owner ON github_private_access_events(owner_username, occurred_at DESC, id DESC);`);
+    db.exec('COMMIT');
+  } catch (error) { try { db.exec('ROLLBACK'); } catch { /* no transaction */ } throw error; }
+  finally { if (foreignKeysWereEnabled) db.pragma('foreign_keys = ON'); }
+}
+
 function _migrateGithubPrivateAccessToRefScope(db) {
   const columns = db.prepare('PRAGMA table_info(github_private_access_requests)').all();
   if (!columns.length || !columns.some((column) => column.name === 'source_commit')) return;
@@ -892,7 +932,7 @@ function _migrateGithubPrivateAccessToRefScope(db) {
         requested_by TEXT, decided_by TEXT, requested_at INTEGER NOT NULL, decided_at INTEGER, expires_at INTEGER,
         revoked_by TEXT, revoked_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
         CHECK ((status = 'pending' AND decided_at IS NULL AND expires_at IS NULL AND revoked_at IS NULL)
-          OR (status = 'approved' AND decided_at IS NOT NULL AND expires_at IS NOT NULL AND revoked_at IS NULL)
+          OR (status = 'approved' AND decided_at IS NOT NULL AND revoked_at IS NULL)
           OR (status = 'rejected' AND decided_at IS NOT NULL AND expires_at IS NULL AND revoked_at IS NULL)
           OR (status = 'revoked' AND decided_at IS NOT NULL AND expires_at IS NOT NULL AND revoked_at IS NOT NULL))
       );

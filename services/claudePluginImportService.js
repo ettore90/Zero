@@ -92,3 +92,20 @@ export async function importClaudePluginFromSource(input) {
   try { upsertPluginAccessGrant({ username: input.actor, agentId: agent.id, scope: { packageKey, sourceCommit: result.sourcePin.commit }, mode: 'direct', approvedFeatures: { skills: skills.map((skill) => skill.key), bundles: [], tools: [] }, actor: input.actor }); } catch { fail('GRANT_FAILED'); }
   return { ...staged, sourceKey: input.sourceKey, resolvedCommit: result.sourcePin.commit, agentId: agent.id, documentKey };
 }
+
+/** Stages a changed Claude Code plugin revision without changing any active prompt refs. */
+export async function syncClaudePluginJob(input) {
+  if (!input || typeof input !== 'object' || typeof input.sourceKey !== 'string' || typeof input.documentKey !== 'string' || typeof input.createdBy !== 'string' || typeof input.fetchImpl !== 'function') fail('INVALID_INPUT');
+  const result = await discover(input.sourceKey, input.fetchImpl);
+  const manifestPath = String(input.manifestPath || '');
+  const pluginRoot = manifestPath === '.claude-plugin/plugin.json' ? '' : manifestPath.endsWith('/.claude-plugin/plugin.json') ? manifestPath.slice(0, -'/.claude-plugin/plugin.json'.length) : null;
+  const manifest = pluginRoot === null ? null : result.manifests.find((item) => item.metadata.claudePlugin.root === pluginRoot);
+  if (!manifest?.skills?.length) fail('INVALID_PLUGIN_CONTENT');
+  const packageKey = safeId(manifest.metadata.claudePlugin.name);
+  const files = result.fetched.files.filter((file) => manifest.skills.some((skill) => skill.path === file.path)).map(({ path, content }) => ({ path, content }));
+  const suffix = result.sourcePin.commit.slice(0, 12);
+  const artifactMappings = manifest.skills.map((skill, position) => ({ artifactKey: `${safeId(skill.path.slice(0, -'/SKILL.md'.length))}-skill`, blockKey: `${packageKey}-${safeId(skill.key)}-${suffix}`, blockType: 'text', included: false, position, metadata: {} }));
+  let staged;
+  try { staged = stagePinnedGithubPromptPackage({ sourcePin: result.sourcePin, package: { packageKey, source: 'github', repository: result.sourcePin.repository, metadata: {} }, version: { version: manifest.metadata.claudePlugin.version || 'discovered', sourceCommit: result.sourcePin.commit, sourceRef: result.sourcePin.ref, manifest }, files, documentKey: input.documentKey, artifactMappings, details: { origin: 'claude_plugin_scheduler' }, actor: input.createdBy }); } catch { fail('STAGING_FAILED'); }
+  return { ...staged, sourceKey: input.sourceKey, resolvedCommit: result.sourcePin.commit };
+}
