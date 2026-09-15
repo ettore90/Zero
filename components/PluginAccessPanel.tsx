@@ -31,15 +31,10 @@ const scopeFor = (plugin: PluginCatalogEntry) => ({ packageKey: plugin.package.p
 const featuresFor = (plugin: PluginCatalogEntry): Selections => plugin.access === 'direct'
   ? { skills: plugin.features.skills, bundles: plugin.features.bundles.map(bundle => bundle.key), tools: plugin.features.tools }
   : emptySelections();
-const mergeSelections = (...values: Selections[]): Selections => ({
-  skills: [...new Set(values.flatMap(value => value.skills))],
-  bundles: [...new Set(values.flatMap(value => value.bundles))],
-  tools: [...new Set(values.flatMap(value => value.tools))],
-});
-// Initial direct configuration uses only redacted identifiers from the requestable
-// inventory. Existing direct baselines may display additions, but the server rejects
-// each addition unless this exact owner/agent/version has an approved request.
-const selectableFor = (plugin: PluginCatalogEntry): Selections => mergeSelections(featuresFor(plugin), requestableFor(plugin));
+// A direct grant may only edit feature IDs already granted by the catalog. The
+// requestable inventory uses request IDs, not grant feature IDs; mixing both made
+// “select all” submit unsupported additions and triggered a false approval error.
+const selectableFor = (plugin: PluginCatalogEntry): Selections => featuresFor(plugin);
 const requestableFor = (plugin: PluginCatalogEntry): Selections => plugin.requestableFeatures
   ? { ...plugin.requestableFeatures }
   : emptySelections();
@@ -109,9 +104,8 @@ const PluginAccessPanel: React.FC<PluginAccessPanelProps> = ({ agentId, onClose 
       const scope = scopeFor(plugin);
       if (editor.mode === 'direct') await upsertAgentPluginGrant(agentId, { scope, mode: 'direct', approvedFeatures: approved!, exclusions: editor.excluded });
       else await upsertAgentPluginGrant(agentId, { scope, mode: editor.mode, exclusions: editor.excluded });
-      // New features stay requestable even for an existing direct baseline. The
-      // server validates the exact grant/version and only a later decision can
-      // authorize adding them to approvedFeatures.
+      // Requestable IDs are distinct request capabilities. They are deliberately
+      // never submitted as approved grant features.
       if ((editor.mode === 'request' || editor.mode === 'direct') && nonEmpty(editor.requested)) await createPluginAccessRequest({ agentId, scope, selections: nonEmpty(editor.requested)! });
     });
   };
