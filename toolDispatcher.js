@@ -28,6 +28,8 @@ import { loadPluginFeaturesForAgent } from './services/pluginFeatureLoader.js';
 import { inspectPluginForAuthorizedCaller, listPluginCatalogForAuthorizedCaller } from './services/pluginCatalog.js';
 import { searchCode } from './services/codeSearch.js';
 import { atlassianMcpCall, atlassianMcpTools, atlassianMcpStatus } from './services/atlassianMcpService.js';
+import { forwardToJira, normalizeJiraPath } from './services/jiraProxyService.js';
+import { recordJiraProxyAudit } from './services/jiraProxyAuditService.js';
 
 const ISOLATED_SUBAGENT_MAX_ITERATIONS = 20;
 const ISOLATED_SUBAGENT_TOOL_HEAVY_DEFAULT_ITERATIONS = 20;
@@ -685,6 +687,30 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         } catch (error) {
             return { error: error.message };
         }
+    }
+
+    if (toolName === 'jira_proxy') {
+        const method = String(args?.method || '').toUpperCase();
+        const rawPath = String(args?.path || '').replace(/^\/+/, '');
+        const normalized = normalizeJiraPath(`rest/${rawPath}`);
+        if (normalized.error) return { error: normalized.error };
+        const state = readState(username) || {};
+        const storedKey = (state.apiKeys || []).find((key) => key.name === 'JIRA_KEY' || key.name === 'JIRA_TOKEN');
+        const token = storedKey?.value?.trim() || process.env.JIRA_TOKEN || '';
+        if (!token) return { error: 'No Jira credential is configured for this account. Store JIRA_KEY or JIRA_TOKEN in Settings > Secrets.' };
+        const mutable = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+        if (mutable) return { confirmationRequired: true, error: `jira_proxy ${method} can change external Jira data. Present the exact method, path, and body to the user and obtain specific confirmation before execution.` };
+        if (method !== 'GET') return { error: 'method must be one of GET, POST, PUT, PATCH, DELETE.' };
+        if (args?.body !== undefined) return { error: 'GET requests may not include a body.' };
+        const queryIndex = normalized.path.indexOf('?');
+        const path = queryIndex >= 0 ? normalized.path.slice(0, queryIndex) : normalized.path;
+        const query = queryIndex >= 0 ? normalized.path.slice(queryIndex + 1) : '';
+        const result = await forwardToJira({ method, path, query, token, requestHeaders: args?.experimentalApi ? { 'x-experimentalapi': 'opt-in' } : {} });
+        recordJiraProxyAudit({ actor: username, method, path: normalized.path, status: result.status, mutable });
+        const contentType = result.headers?.['content-type'] || '';
+        const raw = result.body.toString('utf8');
+        let body; try { body = contentType.includes('json') ? JSON.parse(raw) : raw; } catch { body = raw; }
+        return { status: result.status, headers: result.headers, body };
     }
 
     if (toolName === 'atlassian_mcp') {

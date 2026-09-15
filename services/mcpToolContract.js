@@ -11,7 +11,7 @@ function createContract(name, bundleId, label) {
 // LOGICAL/NOT callable metadata for assigned inert bundles.
 export const MCP_TOOL_CONTRACTS = Object.freeze([
   createContract('mcp_github_read', 'github-read', 'GitHub read'),
-  createContract('atlassian_mcp', 'atlassian-read', 'Atlassian MCP'),
+  createContract('jira_proxy', 'atlassian-read', 'Jira Proxy'),
   createContract('mcp_grafana_read', 'grafana-read', 'Grafana read'),
   createContract('mcp_mongodb_read', 'mongodb-read', 'MongoDB read'),
 ]);

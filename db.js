@@ -616,6 +616,14 @@ function _createSchema(db) {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS jira_proxy_audits (
+      id TEXT PRIMARY KEY, actor TEXT, method TEXT NOT NULL, path TEXT NOT NULL,
+      status INTEGER NOT NULL, mutable INTEGER NOT NULL DEFAULT 0, occurred_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_jira_proxy_audits_occurred ON jira_proxy_audits(occurred_at DESC);
+  `);
+
+  db.exec(`
     -- One intentionally global Atlassian MCP OAuth connection. Both refresh and
     -- registration secrets are encrypted; the UI only receives redacted status.
     CREATE TABLE IF NOT EXISTS atlassian_mcp_connection (

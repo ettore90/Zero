@@ -11,11 +11,11 @@ const BUNDLES = [
   },
   {
     id: 'atlassian-read',
-    label: 'Atlassian read access',
-    transport: 'remote',
-    mode: 'remote',
+    label: 'Jira Proxy access',
+    transport: 'internal',
+    mode: 'proxy',
     risk: 'read-write',
-    capabilities: ['project-read', 'issue-read', 'confluence-read', 'issue-write', 'confluence-write'],
+    capabilities: ['jira-read', 'jira-write'],
   },
   {
     id: 'grafana-read',

@@ -1616,6 +1616,16 @@ export const SYSTEM_TOOLS = [
   },
   {
     type: 'function',
+    group: 'Jira',
+    function: {
+      name: 'jira_proxy',
+      callableBy: ['workflow', 'llm', 'agent'],
+      description: 'Call the Jira Cloud REST API through Zero’s credential-injecting proxy for endpoints not covered by jira_queue or jira_action. Send a relative Jira REST path without /rest, e.g. api/3/myself or api/3/search/jql?...; host is permanently pinned and credentials are resolved only server-side. Currently this tool executes GET read operations only. POST, PUT, PATCH and DELETE are deliberately blocked until a server-enforced per-action confirmation flow is implemented.',
+      parameters: { type: 'object', properties: { method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] }, path: { type: 'string', description: 'Relative Jira REST path such as api/3/myself or api/3/issue/ABC-1. Do not include host, protocol, /rest prefix, or credentials.' }, body: { type: 'object', description: 'Optional JSON body for POST, PUT, or PATCH.' }, experimentalApi: { type: 'boolean', description: 'Set true only when the Jira endpoint explicitly requires X-ExperimentalApi: opt-in.' } }, required: ['method', 'path'], additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
     group: 'Atlassian MCP',
     function: {
       name: 'atlassian_mcp',

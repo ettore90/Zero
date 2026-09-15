@@ -120,7 +120,7 @@ export interface PromptPackageFilters {
     repository?: string;
 }
 
-async function localGetRequired<T = any>(path: string): Promise<T> {
+export async function localGetRequired<T = any>(path: string): Promise<T> {
     const res = await fetch(`${LOCAL_BASE}${path}`, {
         headers: getAuthHeaders(),
     });
