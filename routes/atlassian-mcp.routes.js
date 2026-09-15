@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { checkLocalAccess } from '../middlewares/localAccess.js';
-import { atlassianMcpStatus, atlassianMcpTools, completeAtlassianMcpOAuth, disconnectAtlassianMcp, startAtlassianMcpOAuth } from '../services/atlassianMcpService.js';
+import { atlassianMcpStatus, atlassianMcpTools, completeAtlassianMcpOAuth, disconnectAtlassianMcp, listAtlassianMcpAudits, startAtlassianMcpOAuth } from '../services/atlassianMcpService.js';
 
 const router = Router();
 function operator(req) { return req.session && req.user?.username === 'ettore' && req.user?.role === 'admin' ? req.user.username : null; }
@@ -11,4 +11,5 @@ router.post('/settings/atlassian-mcp/oauth/start', checkLocalAccess, async (req,
 router.get('/settings/atlassian-mcp/oauth/callback', async (req, res) => { try { await completeAtlassianMcpOAuth({ code: req.query?.code, state: req.query?.state }); return res.type('html').send('<!doctype html><title>Atlassian MCP connected</title><p>Atlassian MCP connected. You may close this window and return to Zero.</p>'); } catch { return res.status(400).type('html').send('<!doctype html><title>Atlassian MCP connection failed</title><p>Atlassian MCP connection failed. Return to Zero and try again.</p>'); } });
 router.delete('/settings/atlassian-mcp', checkLocalAccess, (req, res) => { const actor = operator(req); if (!actor) return res.status(401).json({ error: 'authenticated operator session required' }); return res.json({ disconnected: disconnectAtlassianMcp(actor) }); });
 router.get('/settings/atlassian-mcp/tools', checkLocalAccess, async (req, res) => { const actor = operator(req); if (!actor) return res.status(401).json({ error: 'authenticated operator session required' }); try { return res.json({ tools: await atlassianMcpTools(actor) }); } catch (error) { return failure(res, error); } });
+router.get('/settings/atlassian-mcp/audits', checkLocalAccess, (req, res) => { const actor = operator(req); if (!actor) return res.status(401).json({ error: 'authenticated operator session required' }); return res.json({ audits: listAtlassianMcpAudits() }); });
 export default router;

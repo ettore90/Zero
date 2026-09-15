@@ -17,6 +17,7 @@ function audit({ event, actor = null, toolName = null, mutable = false, status =
 function connection() { return getDb().prepare('SELECT * FROM atlassian_mcp_connection WHERE id=1').get(); }
 function publicStatus() { const row = connection(); return { configured: Boolean(encryptionKey()), connected: Boolean(row), expiresAt: row?.expires_at ?? null, scopes: row?.scopes?.split(' ').filter(Boolean) ?? [], endpoint: MCP_URL }; }
 export function atlassianMcpStatus() { return publicStatus(); }
+export function listAtlassianMcpAudits(limit = 50) { const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 100)); return getDb().prepare('SELECT event,actor,tool_name AS toolName,mutable,status,details,occurred_at AS occurredAt FROM atlassian_mcp_audits ORDER BY occurred_at DESC, id DESC LIMIT ?').all(safeLimit).map((row) => ({ ...row, mutable: Boolean(row.mutable), details: (() => { try { return JSON.parse(row.details); } catch { return {}; } })() })); }
 
 async function registerClient(redirectUri) {
   const response = await fetch(`${OAUTH}/v1/register`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ client_name: 'Zero', redirect_uris: [redirectUri], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }) });

@@ -112,6 +112,7 @@ export async function getAtlassianMcpStatus(): Promise<AtlassianMcpConnectionSta
 export async function startAtlassianMcpOAuth(): Promise<{ authorizationUrl: string }> { return localPost('/api/settings/atlassian-mcp/oauth/start', {}); }
 export async function disconnectAtlassianMcp(): Promise<{ disconnected: boolean }> { return localDelete('/api/settings/atlassian-mcp', {}); }
 export async function listAtlassianMcpTools(): Promise<{ tools: Array<{ name: string; description: string }> }> { return localGetRequired('/api/settings/atlassian-mcp/tools'); }
+export async function listAtlassianMcpAudits(): Promise<{ audits: Array<{ event: string; actor: string | null; toolName: string | null; mutable: boolean; status: string; occurredAt: number }> }> { return localGetRequired('/api/settings/atlassian-mcp/audits'); }
 
 export interface PromptPackageFilters {
     status?: string;

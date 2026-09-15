@@ -1,7 +1,7 @@
 import React from 'react';
 import PayloadEditorModal from './PayloadEditorModal';
 import PromptPackageCatalog from './PromptPackageCatalog';
-import AtlassianMcpSettings from './AtlassianMcpSettings';
+import McpSettings from './McpSettings';
 import type { ModelConfig, ApiKey, MemoryConfig, SummaryConfig, ColorTheme, Agent } from '../types';
 import { useSettingsForm } from '../hooks/useSettingsForm';
 import * as localApiService from '../services/localApiService';
@@ -354,7 +354,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     { id: 'dispatcher', label: 'Dispatcher' },
     { id: 'globals', label: 'Globals' },
     { id: 'prompt-packages', label: 'Prompt Packages' },
-    { id: 'atlassian-mcp', label: 'Atlassian MCP' },
+    { id: 'mcp', label: 'MCP' },
   ];
 
   if (externalIsLoading || isLoading) return (
@@ -771,7 +771,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
             {activeTab === 'prompt-packages' && <PromptPackageCatalog />}
-            {activeTab === 'atlassian-mcp' && <AtlassianMcpSettings />}
+            {activeTab === 'mcp' && <McpSettings />}
             {activeTab === 'globals' && (
               <div className="space-y-5 max-w-4xl">
                 <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50 dark:bg-indigo-950/20 p-4">
