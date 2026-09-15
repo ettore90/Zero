@@ -102,7 +102,9 @@ function parseSkill(content, sourcePath) {
       const folded = [];
       while (index + 1 < end && /^[ \t]+\S/.test(lines[index + 1])) folded.push(lines[++index].trim());
       const normalized = folded.join(' ');
-      if (!folded.length || normalized.length > MAX_FOLDED_DESCRIPTION_LENGTH || /[#:{}\[\],&*!|>@`]/.test(normalized) || normalized.includes('\"') || normalized.includes("'")) fail('INVALID_SKILL', `${sourcePath} has unsafe folded frontmatter`);
+      // Folded YAML descriptions are inert metadata. Permit ordinary prose punctuation
+      // while rejecting YAML document/control tokens that could change the structure.
+      if (!folded.length || normalized.length > MAX_FOLDED_DESCRIPTION_LENGTH || /^(?:---|\.\.\.)$/.test(normalized) || /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(normalized)) fail('INVALID_SKILL', `${sourcePath} has unsafe folded frontmatter`);
       metadata[key] = normalized;
       continue;
     }
