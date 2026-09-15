@@ -53,7 +53,7 @@ function frontmatter(value, sourcePath) {
       const folded = [];
       while (i + 1 < end && /^[ \t]+\S/.test(lines[i + 1])) folded.push(lines[++i].trim());
       const normalized = folded.join(' ');
-      if (!folded.length || normalized.length > MAX_FOLDED_DESCRIPTION_LENGTH || /[#:{}\[\],&*!|>@`]/.test(normalized) || normalized.includes('\"') || normalized.includes("'")) fail(`skill ${sourcePath} has unsafe folded ${key} frontmatter`);
+      if (!folded.length || normalized.length > MAX_FOLDED_DESCRIPTION_LENGTH || /^(?:---|\.\.\.)$/.test(normalized) || /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(normalized)) fail(`skill ${sourcePath} has unsafe folded ${key} frontmatter`);
       metadata[key] = normalized;
       continue;
     }
