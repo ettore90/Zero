@@ -689,6 +689,11 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         }
     }
 
+    if (toolName === 'grafana_loki_read') {
+        const { grafanaLokiQuery } = await import('./services/grafanaLokiService.js');
+        try { return await grafanaLokiQuery({ ...args, actor: username }); } catch (error) { return { error: error?.message || 'Grafana Loki request failed.' }; }
+    }
+
     if (toolName === 'jira_proxy') {
         const method = String(args?.method || '').toUpperCase();
         const rawPath = String(args?.path || '').replace(/^\/+/, '');

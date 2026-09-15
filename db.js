@@ -616,6 +616,14 @@ function _createSchema(db) {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS grafana_loki_audits (
+      id TEXT PRIMARY KEY, actor TEXT, operation TEXT NOT NULL, status INTEGER NOT NULL,
+      estimated_bytes INTEGER NOT NULL DEFAULT 0, returned INTEGER NOT NULL DEFAULT 0, occurred_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_grafana_loki_audits_occurred ON grafana_loki_audits(occurred_at DESC);
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS jira_proxy_audits (
       id TEXT PRIMARY KEY, actor TEXT, method TEXT NOT NULL, path TEXT NOT NULL,
       status INTEGER NOT NULL, mutable INTEGER NOT NULL DEFAULT 0, occurred_at INTEGER NOT NULL

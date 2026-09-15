@@ -354,7 +354,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     { id: 'dispatcher', label: 'Dispatcher' },
     { id: 'globals', label: 'Globals' },
     { id: 'prompt-packages', label: 'Prompt Packages' },
-    { id: 'mcp', label: 'MCP' },
+    { id: 'mcp', label: 'Connectors' },
   ];
 
   if (externalIsLoading || isLoading) return (

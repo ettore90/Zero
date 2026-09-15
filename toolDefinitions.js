@@ -1616,6 +1616,10 @@ export const SYSTEM_TOOLS = [
   },
   {
     type: 'function',
+    group: 'Grafana',
+    function: { name: 'grafana_loki_read', callableBy: ['llm', 'agent'], description: 'Read Loki logs through the fixed Grafana datasource. Read-only: requires LogQL with both cluster and namespace labels, epoch-millisecond start/end within seven days, and maximum 100 lines. Grafana service token is fetched only at runtime from Azure Key Vault.', parameters: { type: 'object', properties: { query: { type: 'string' }, start: { type: 'number' }, end: { type: 'number' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, required: ['query', 'start', 'end'], additionalProperties: false } } },
+  {
+    type: 'function',
     group: 'Jira',
     function: {
       name: 'jira_proxy',
