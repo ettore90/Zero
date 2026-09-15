@@ -13,9 +13,9 @@ const BUNDLES = [
     id: 'atlassian-read',
     label: 'Atlassian read access',
     transport: 'remote',
-    mode: 'inert',
-    risk: 'read-only',
-    capabilities: ['project-read', 'issue-read'],
+    mode: 'remote',
+    risk: 'read-write',
+    capabilities: ['project-read', 'issue-read', 'confluence-read', 'issue-write', 'confluence-write'],
   },
   {
     id: 'grafana-read',

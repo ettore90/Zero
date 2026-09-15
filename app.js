@@ -30,6 +30,7 @@ import workflowRunsRoutes from './routes/workflow-runs.routes.js';
 import usageRoutes from './routes/usage.routes.js';
 import jiraRoutes from './routes/jira.routes.js';
 import transcriptionRoutes from './routes/transcription.routes.js';
+import atlassianMcpRoutes from './routes/atlassian-mcp.routes.js';
 
 export function createApp() {
   const app = express();
@@ -96,6 +97,7 @@ export function createApp() {
     app.use(prefix, usageRoutes);
     app.use(prefix, jiraRoutes);
     app.use(prefix, transcriptionRoutes);
+    app.use(prefix, atlassianMcpRoutes);
   }
 
   const ollamaPrefixes = ['/ollama'];

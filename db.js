@@ -616,6 +616,24 @@ function _createSchema(db) {
   `);
 
   db.exec(`
+    -- One intentionally global Atlassian MCP OAuth connection. Both refresh and
+    -- registration secrets are encrypted; the UI only receives redacted status.
+    CREATE TABLE IF NOT EXISTS atlassian_mcp_connection (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      access_ciphertext TEXT NOT NULL, access_iv TEXT NOT NULL, access_tag TEXT NOT NULL,
+      refresh_ciphertext TEXT, refresh_iv TEXT, refresh_tag TEXT,
+      client_ciphertext TEXT NOT NULL, client_iv TEXT NOT NULL, client_tag TEXT NOT NULL,
+      client_secret_ciphertext TEXT, client_secret_iv TEXT, client_secret_tag TEXT,
+      scopes TEXT NOT NULL DEFAULT '', expires_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS atlassian_mcp_audits (
+      id TEXT PRIMARY KEY, event TEXT NOT NULL, actor TEXT, tool_name TEXT,
+      mutable INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL, details TEXT NOT NULL DEFAULT '{}', occurred_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_atlassian_mcp_audits_occurred ON atlassian_mcp_audits(occurred_at DESC);
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS prompt_package_sync_sources (
       id TEXT PRIMARY KEY,
       source_key TEXT NOT NULL UNIQUE,

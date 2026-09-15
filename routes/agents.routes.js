@@ -645,7 +645,7 @@ router.get('/agents/:id/mcp-bundles', checkLocalAccess, (req, res) => {
         label: contract.label,
         risk: contract.risk,
         mode: contract.mode,
-        executionAvailable: false,
+        executionAvailable: Boolean(contract.executionAvailable),
       })),
       mode: resolved?.mode,
       eligible: resolved?.eligible,
@@ -653,7 +653,7 @@ router.get('/agents/:id/mcp-bundles', checkLocalAccess, (req, res) => {
       allowedToolsPolicy: {
         setting: resolved?.allowedToolsPolicy?.setting,
         mcpToolNames: Array.isArray(resolved?.allowedToolsPolicy?.mcpToolNames) ? resolved.allowedToolsPolicy.mcpToolNames : [],
-        mcpToolExecutionAvailable: false,
+        mcpToolExecutionAvailable: Boolean(resolved?.allowedToolsPolicy?.mcpToolExecutionAvailable),
         invalidAssignment: Boolean(resolved?.allowedToolsPolicy?.invalidAssignment),
       },
     });

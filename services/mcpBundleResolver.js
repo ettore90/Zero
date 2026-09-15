@@ -70,11 +70,11 @@ function resolveToolContracts(bundleIds, invalidAssignment) {
   }
 }
 
-function resolveAllowedToolsPolicy(value, invalidAssignment) {
+function resolveAllowedToolsPolicy(value, invalidAssignment, bundleIds) {
   const emptyMcpToolNames = Object.freeze([]);
   const base = {
     mcpToolNames: emptyMcpToolNames,
-    mcpToolExecutionAvailable: false,
+    mcpToolExecutionAvailable: !invalidAssignment && Array.isArray(bundleIds) && bundleIds.includes('atlassian-read'),
     invalidAssignment: Boolean(invalidAssignment),
   };
   const policy = (setting) => Object.freeze({ ...base, setting });
@@ -107,6 +107,7 @@ export function resolveMcpBundlesForAgent(agent) {
   const allowedToolsPolicy = resolveAllowedToolsPolicy(
     readAgentValue(agent, 'allowedTools'),
     assignment.invalidAssignment,
+    assignment.ids,
   );
   const bundles = Object.freeze(assignment.ids
     .map((id) => getMcpBundle(id))

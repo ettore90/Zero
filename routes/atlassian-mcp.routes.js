@@ -1,0 +1,14 @@
+import { Router } from 'express';
+import { checkLocalAccess } from '../middlewares/localAccess.js';
+import { atlassianMcpStatus, atlassianMcpTools, completeAtlassianMcpOAuth, disconnectAtlassianMcp, startAtlassianMcpOAuth } from '../services/atlassianMcpService.js';
+
+const router = Router();
+function operator(req) { return req.session && req.user?.username === 'ettore' && req.user?.role === 'admin' ? req.user.username : null; }
+function redirectUri(req) { const configured = process.env.ATLASSIAN_MCP_OAUTH_REDIRECT_URI; if (configured) return configured; const proto = req.headers['x-forwarded-proto'] === 'https' ? 'https' : req.protocol; const host = req.headers['x-forwarded-host'] || req.get('host'); return host ? `${proto}://${host}${process.env.BASE_PATH || ''}/api/settings/atlassian-mcp/oauth/callback` : ''; }
+function failure(res, error) { const status = error?.code === 'NOT_CONNECTED' ? 409 : error?.code === 'OAUTH_NOT_CONFIGURED' ? 503 : 400; return res.status(status).json({ error: 'Atlassian MCP request failed', code: error?.code || 'UNKNOWN' }); }
+router.get('/settings/atlassian-mcp', checkLocalAccess, (req, res) => { if (!operator(req)) return res.status(401).json({ error: 'authenticated operator session required' }); return res.json(atlassianMcpStatus()); });
+router.post('/settings/atlassian-mcp/oauth/start', checkLocalAccess, async (req, res) => { const actor = operator(req); if (!actor) return res.status(401).json({ error: 'authenticated operator session required' }); try { return res.json({ authorizationUrl: await startAtlassianMcpOAuth({ redirectUri: redirectUri(req), actor }) }); } catch (error) { return failure(res, error); } });
+router.get('/settings/atlassian-mcp/oauth/callback', async (req, res) => { try { await completeAtlassianMcpOAuth({ code: req.query?.code, state: req.query?.state }); return res.type('html').send('<!doctype html><title>Atlassian MCP connected</title><p>Atlassian MCP connected. You may close this window and return to Zero.</p>'); } catch { return res.status(400).type('html').send('<!doctype html><title>Atlassian MCP connection failed</title><p>Atlassian MCP connection failed. Return to Zero and try again.</p>'); } });
+router.delete('/settings/atlassian-mcp', checkLocalAccess, (req, res) => { const actor = operator(req); if (!actor) return res.status(401).json({ error: 'authenticated operator session required' }); return res.json({ disconnected: disconnectAtlassianMcp(actor) }); });
+router.get('/settings/atlassian-mcp/tools', checkLocalAccess, async (req, res) => { const actor = operator(req); if (!actor) return res.status(401).json({ error: 'authenticated operator session required' }); try { return res.json({ tools: await atlassianMcpTools(actor) }); } catch (error) { return failure(res, error); } });
+export default router;

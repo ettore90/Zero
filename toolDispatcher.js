@@ -27,6 +27,7 @@ import { areSessionNotesEnabled } from './services/toolAccessPolicy.js';
 import { loadPluginFeaturesForAgent } from './services/pluginFeatureLoader.js';
 import { inspectPluginForAuthorizedCaller, listPluginCatalogForAuthorizedCaller } from './services/pluginCatalog.js';
 import { searchCode } from './services/codeSearch.js';
+import { atlassianMcpCall, atlassianMcpTools, atlassianMcpStatus } from './services/atlassianMcpService.js';
 
 const ISOLATED_SUBAGENT_MAX_ITERATIONS = 20;
 const ISOLATED_SUBAGENT_TOOL_HEAVY_DEFAULT_ITERATIONS = 20;
@@ -684,6 +685,23 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         } catch (error) {
             return { error: error.message };
         }
+    }
+
+    if (toolName === 'atlassian_mcp') {
+        const agent = getAgent(username, agentId);
+        if (!agent || !Array.isArray(agent.mcpBundles) || !agent.mcpBundles.includes('atlassian-read')) return { error: 'Atlassian MCP requires the atlassian-read bundle on this agent.' };
+        if (!atlassianMcpStatus().connected) return { error: 'Atlassian MCP is not connected. Connect it in Settings > Atlassian MCP.' };
+        if (args?.operation === 'list_tools') return { tools: await atlassianMcpTools(username) };
+        if (args?.operation === 'call' && typeof args.toolName === 'string') {
+            // The remote catalog is variable. Names that signal a mutation always stop at
+            // the server boundary until a durable per-action approval token is implemented.
+            // A model cannot self-attest consent by adding a parameter to this request.
+            if (/(?:create|update|edit|delete|remove|archive|comment|transition|link|attach|move|publish)/i.test(args.toolName)) {
+                return { confirmationRequired: true, error: 'This Atlassian MCP call can mutate external data. Present the exact tool and arguments to the user and obtain a specific approval before using the external-action approval flow.' };
+            }
+            return atlassianMcpCall({ toolName: args.toolName, arguments: args.arguments || {}, actor: username });
+        }
+        return { error: 'operation must be list_tools or call with toolName.' };
     }
 
     if (toolName === 'run_terminal_command') {

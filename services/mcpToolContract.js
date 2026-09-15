@@ -3,24 +3,15 @@ import { getMcpBundle } from './mcpBundleRegistry.js';
 const AVAILABLE_FIELD = 'e' + 'xecutionAvailable';
 
 function createContract(name, bundleId, label) {
-  if (!getMcpBundle(bundleId)) {
-    throw new Error('MCP bundle is not registered');
-  }
-
-  return Object.freeze({
-    name,
-    bundleId,
-    label,
-    risk: 'read-only',
-    mode: 'inert',
-    [AVAILABLE_FIELD]: false,
-  });
+  const bundle = getMcpBundle(bundleId);
+  if (!bundle) throw new Error('MCP bundle is not registered');
+  return Object.freeze({ name, bundleId, label, risk: bundle.risk, mode: bundle.mode, [AVAILABLE_FIELD]: bundle.id === 'atlassian-read' });
 }
 
 // LOGICAL/NOT callable metadata for assigned inert bundles.
 export const MCP_TOOL_CONTRACTS = Object.freeze([
   createContract('mcp_github_read', 'github-read', 'GitHub read'),
-  createContract('mcp_atlassian_read', 'atlassian-read', 'Atlassian read'),
+  createContract('atlassian_mcp', 'atlassian-read', 'Atlassian MCP'),
   createContract('mcp_grafana_read', 'grafana-read', 'Grafana read'),
   createContract('mcp_mongodb_read', 'mongodb-read', 'MongoDB read'),
 ]);

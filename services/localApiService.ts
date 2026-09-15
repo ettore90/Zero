@@ -107,6 +107,12 @@ export async function localDelete<T = any>(path: string, body: object): Promise<
 
 // Helpers de domínio — buscam dados frescos do servidor
 
+export interface AtlassianMcpConnectionStatus { configured: boolean; connected: boolean; expiresAt: number | null; scopes: string[]; endpoint: string; }
+export async function getAtlassianMcpStatus(): Promise<AtlassianMcpConnectionStatus> { return localGetRequired('/api/settings/atlassian-mcp'); }
+export async function startAtlassianMcpOAuth(): Promise<{ authorizationUrl: string }> { return localPost('/api/settings/atlassian-mcp/oauth/start', {}); }
+export async function disconnectAtlassianMcp(): Promise<{ disconnected: boolean }> { return localDelete('/api/settings/atlassian-mcp', {}); }
+export async function listAtlassianMcpTools(): Promise<{ tools: Array<{ name: string; description: string }> }> { return localGetRequired('/api/settings/atlassian-mcp/tools'); }
+
 export interface PromptPackageFilters {
     status?: string;
     source?: string;

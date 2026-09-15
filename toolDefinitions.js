@@ -1616,6 +1616,16 @@ export const SYSTEM_TOOLS = [
   },
   {
     type: 'function',
+    group: 'Atlassian MCP',
+    function: {
+      name: 'atlassian_mcp',
+      callableBy: ['llm', 'agent'],
+      description: 'Call an approved tool from the globally connected official Atlassian MCP. Requires the agent to have the atlassian-read MCP bundle. Use operation=list_tools before calling a tool. Any external write (create, update, edit, delete, comment, transition, link) must be proposed and explicitly confirmed by the user immediately before invocation; do not call it merely because the user approved a broader plan.',
+      parameters: { type: 'object', properties: { operation: { type: 'string', enum: ['list_tools', 'call'] }, toolName: { type: 'string' }, arguments: { type: 'object' } }, required: ['operation'], additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
     group: 'Jira',
     function: {
       name: 'jira_action',
