@@ -35,3 +35,6 @@ tmp/
 temp/
 .cache/
 .next/
+
+# Claude nested worktrees
+.claude/worktrees/

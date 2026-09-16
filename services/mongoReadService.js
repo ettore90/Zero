@@ -234,7 +234,20 @@ export async function mongoHealth({ mode = 'na-qa', actor } = {}) {
 }
 
 export function mongoConnectionStatus() {
-  return { id: 'mongodb', label: 'MongoDB (SophieX2 Atlas)', transport: 'internal-driver', configured: true, connected: false, capabilities: ['database-read'], authentication: 'Azure Key Vault connection strings', vault: VAULT, modes: listMongoModes(), note: 'Reaches Atlas private endpoints through the host VPN; read-only operations only.' };
+  const secretNames = [...new Set(Object.values(MODES).map((mode) => mode.secretName))].sort();
+  return {
+    id: 'mongodb',
+    label: 'MongoDB (SophieX2 Atlas)',
+    transport: 'internal-driver',
+    configured: true,
+    connected: clients.size > 0,
+    capabilities: ['database-read'],
+    authentication: 'Azure Key Vault connection strings',
+    vault: VAULT,
+    secretNames,
+    modes: listMongoModes(),
+    note: 'Reaches Atlas private endpoints through the host VPN; read-only operations only.',
+  };
 }
 
 function recordAudit({ actor, mode, operation, status, returned }) {
