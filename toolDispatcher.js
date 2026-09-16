@@ -699,6 +699,11 @@ async function _dispatch(toolName, args, agentId, username, ctx) {
         try { return await grafanaLokiQuery({ ...args, actor: username }); } catch (error) { return { error: error?.message || 'Grafana Loki request failed.' }; }
     }
 
+    if (toolName === 'mongodb_read') {
+        const { mongoRead } = await import('./services/mongoReadService.js');
+        try { return await mongoRead({ ...args, actor: username }); } catch (error) { return { error: error?.message || 'MongoDB read failed.' }; }
+    }
+
     if (toolName === 'jira_proxy') {
         const method = String(args?.method || '').toUpperCase();
         const rawPath = String(args?.path || '').replace(/^\/+/, '');

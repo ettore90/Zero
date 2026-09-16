@@ -93,6 +93,13 @@ On `429`, honour `Retry-After` rather than retrying immediately.
 - **Only the one site.** The host is a constant in `services/jiraProxyService.js`, not a request parameter. That pinning is what keeps this from being an SSRF relay like `POST /api/proxy`, so do not "fix" it by taking the host from the caller; add a host allowlist if another site is ever needed.
 - **Only paths under `rest/`.** Traversal is rejected in literal and percent-encoded form.
 - **`GET POST PUT PATCH DELETE` only** — `HEAD` and the rest answer 405.
+- **Almost no request headers reach Jira.** The proxy builds its own
+  `Authorization`, `Accept` and `Content-Type` and drops the rest, so a
+  caller can never supply its own credential. One exception, allowlisted in
+  `PASSTHROUGH_REQUEST_HEADERS`: **`X-ExperimentalApi: opt-in`**, which
+  parts of the JSM surface require — creating a request type
+  (`POST /rest/servicedeskapi/servicedesk/{id}/requesttype`) answers `412`
+  without it. Add to that allowlist rather than forwarding headers wholesale.
 - 60s timeout, 25MB response cap. Page large reads instead of widening them.
 
 ## Zero's own Jira endpoints are a different thing

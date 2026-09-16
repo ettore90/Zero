@@ -1624,6 +1624,10 @@ export const SYSTEM_TOOLS = [
     function: { name: 'grafana_loki_read', callableBy: ['llm', 'agent'], description: 'Read Loki logs through the fixed Grafana datasource. Read-only: requires LogQL with both cluster and namespace labels, epoch-millisecond start/end within seven days, and maximum 100 lines. Grafana service token is fetched only at runtime from Azure Key Vault.', parameters: { type: 'object', properties: { query: { type: 'string' }, start: { type: 'number' }, end: { type: 'number' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, required: ['query', 'start', 'end'], additionalProperties: false } } },
   {
     type: 'function',
+    group: 'MongoDB',
+    function: { name: 'mongodb_read', callableBy: ['llm', 'agent'], description: "Read SophieX2's Atlas MongoDB clusters. Read-only: no write operation exists, and $out/$merge are rejected. 'mode' selects the cluster (na-qa, na-prod, na-indexer-qa, na-indexer-prod-ksjpw, na-indexer-prod-wdxzo, emea-qa, emea-prod, emea-dev, 4agent-ro); the host is fixed per mode. Operations: list_databases, list_collections, find, count, distinct, aggregate, indexes. Results are capped at 50 documents and 1 MiB. Connection strings are fetched at runtime from Azure Key Vault, and the clusters are only reachable while the host VPN is up.", parameters: { type: 'object', properties: { mode: { type: 'string', enum: ['na-qa', 'na-prod', 'na-indexer-qa', 'na-indexer-prod-ksjpw', 'na-indexer-prod-wdxzo', 'emea-qa', 'emea-prod', 'emea-dev', '4agent-ro'] }, operation: { type: 'string', enum: ['list_databases', 'list_collections', 'find', 'count', 'distinct', 'aggregate', 'indexes'] }, database: { type: 'string' }, collection: { type: 'string' }, filter: { type: 'object' }, projection: { type: 'object' }, sort: { type: 'object' }, pipeline: { type: 'array', items: { type: 'object' } }, field: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, required: ['mode', 'operation'], additionalProperties: false } } },
+  {
+    type: 'function',
     group: 'Jira',
     function: {
       name: 'jira_proxy',
