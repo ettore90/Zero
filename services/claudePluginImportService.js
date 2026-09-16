@@ -9,7 +9,11 @@ import { upsertPluginAccessGrant } from './pluginAccessStore.js';
 
 const MAX_PLUGIN_FILES = 96;
 const MAX_SKILL_REFERENCES = 24;
-const REFERENCE_TOKEN = /(?:\[[^\]]*\]\(|`?)(references\/[A-Za-z0-9][A-Za-z0-9._/-]*\.md)(?:\)|`?)/g;
+// Only explicit Markdown links or complete inline-code paths opt into snapshotting.
+// The opener is required: otherwise a cross-skill mention such as
+// `sophie-investigation/references/example.md` would be misread as a local
+// `references/...` path for the current skill.
+const REFERENCE_TOKEN = /(?:\[[^\]]*\]\(|`)(references\/[A-Za-z0-9][A-Za-z0-9._/-]*\.md)(?:\)|`)/g;
 const SOURCE_KEY = /^github:([a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*)@([^\s]+)$/;
 
 export class ClaudePluginImportError extends Error {
