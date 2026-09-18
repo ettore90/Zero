@@ -1850,7 +1850,13 @@ router.post('/jira/action', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// ALL /api/jira/rest/* — credential-injecting passthrough to the Jira REST API
+// ALL /api/jira/rest/* and /api/jira/wiki/* — credential-injecting passthrough
+// to the Jira and Confluence REST APIs on the same site.
+//
+// Confluence sits under /wiki on that same host and accepts the same stored
+// credential, so it is reached the same way:
+//   curl -sk 'https://localhost/zero/api/jira/wiki/rest/api/space?limit=3' -H 'x-username: ettore'
+//   curl -sk 'https://localhost/zero/api/jira/wiki/api/v2/spaces?keys=SNS' -H 'x-username: ettore'
 //
 // Write the real Jira path and send no credential:
 //   curl -sk https://localhost/zero/api/jira/rest/api/3/myself -H 'x-username: ettore'
@@ -1866,16 +1872,19 @@ router.post('/jira/action', async (req, res) => {
 // Request headers are NOT: only the allowlist in jiraProxyService reaches Jira
 // (today just X-ExperimentalApi, which some JSM endpoints require), so a caller
 // can never supply its own Authorization.
-// The host is a constant and the path must be under rest/, so unlike
+// The host is a constant and the path must be under rest/ or wiki/, so unlike
 // POST /api/proxy nothing in the request can retarget the call.
 // ---------------------------------------------------------------------------
-router.all('/jira/rest/*', checkLocalAccess, async (req, res) => {
+router.all(['/jira/rest/*', '/jira/wiki/*'], checkLocalAccess, async (req, res) => {
   const token = getJiraToken(req);
   if (!token) {
     return res.status(401).json({ error: describeMissingCredential(req) });
   }
 
-  const { path, error } = normalizeJiraPath(`rest/${req.params[0] || ''}`);
+  // Which surface of the site the caller asked for. Confluence hangs off /wiki
+  // on the same host and uses the same credential; Jira is everything else.
+  const surface = req.path.startsWith('/jira/wiki/') ? 'wiki' : 'rest';
+  const { path, error } = normalizeJiraPath(`${surface}/${req.params[0] || ''}`);
   if (error) return res.status(400).json({ error });
 
   const queryIndex = req.originalUrl.indexOf('?');
