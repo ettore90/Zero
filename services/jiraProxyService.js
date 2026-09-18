@@ -7,7 +7,7 @@
 //
 // This is deliberately NOT shaped like routes/proxy.routes.js. That one takes
 // its target URL from the request, which makes it an open SSRF relay. Here the
-// host is a constant, the path must be under /rest/, and nothing in the request
+// host is a constant, the path must be under /rest/ or /wiki/, and nothing in the request
 // can redirect the call somewhere else.
 // =============================================================================
 
@@ -17,7 +17,11 @@ import { resolveSecrets } from '../utils/resolveSecrets.js';
 export const JIRA_HOSTNAME = 'stefaninisophiedelivery.atlassian.net';
 
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
-const ALLOWED_PATH_PREFIX = 'rest/';
+// Confluence Cloud sits on the same host and accepts the same credential, but
+// its REST surface hangs off /wiki. Allowing those prefixes keeps the host
+// constant and the traversal check intact: it only widens which paths on the
+// already-fixed host a caller may ask for.
+const ALLOWED_PATH_PREFIXES = ['rest/', 'wiki/rest/', 'wiki/api/'];
 const REQUEST_TIMEOUT_MS = 60000;
 const MAX_RESPONSE_BYTES = 25 * 1024 * 1024;
 const PASSTHROUGH_RESPONSE_HEADERS = [
@@ -142,8 +146,9 @@ export function normalizeJiraPath(rawPath = '') {
   if (decoded.includes('..') || decoded.includes('\\')) {
     return { error: 'path may not contain ".." or backslashes' };
   }
-  if (!trimmed.startsWith(ALLOWED_PATH_PREFIX)) {
-    return { error: `path must start with "${ALLOWED_PATH_PREFIX}" (got "${trimmed.split('?')[0]}")` };
+  if (!ALLOWED_PATH_PREFIXES.some((prefix) => trimmed.startsWith(prefix))) {
+    const allowed = ALLOWED_PATH_PREFIXES.map((prefix) => `"${prefix}"`).join(', ');
+    return { error: `path must start with one of ${allowed} (got "${trimmed.split('?')[0]}")` };
   }
   return { path: `/${trimmed}` };
 }
