@@ -128,8 +128,12 @@ zero_stop() {
 zero_alerts() { zero_get "/alerts?username=$ZERO_USER"; }
 zero_breaker() { zero_get /admin/circuit-breaker/status; }
 
-# ---- jira passthrough ------------------------------------------------------
-# The Jira credential is stored per user, so the x-username header is what
+# ---- atlassian passthrough (jira + confluence) -----------------------------
+# One stored credential covers both surfaces of the same site. Use these rather
+# than the Atlassian MCP, which authenticates and then 403s with "The app is
+# not installed on this instance" on every call.
+#
+# The credential is stored per user, so the x-username header is what
 # selects it -- omit it and the route 401s even though the secret is stored.
 # Write the REAL Jira REST path after the mount point.
 #
@@ -143,6 +147,23 @@ zero_breaker() { zero_get /admin/circuit-breaker/status; }
 zero_jira() {
   local path="$1"; shift
   curl -sk -m 60 "$ZERO_BASE/jira/rest/$path" -H "x-username: $ZERO_USER" "$@"
+}
+
+# Confluence rides the same mount -- it lives under /wiki on the same host and
+# takes the same credential. Write the real Confluence path after `wiki/`:
+# `rest/api/...` is the v1 API, `api/v2/...` the v2 one. Both are supported.
+#
+#   zero_confluence 'rest/api/space?limit=5&type=global'
+#   zero_confluence 'api/v2/spaces?keys=SNS'
+#   zero_confluence 'rest/api/content/search?cql=space%3DSNS%20AND%20type%3Dpage&limit=15'
+#   zero_confluence 'rest/api/content/<id>?expand=body.view,version'
+#
+# `body.view.value` is HTML, and a page using the newer table macro can carry
+# no <tr> at all -- strip tags and read the text instead of parsing rows, or a
+# populated table reads as empty.
+zero_confluence() {
+  local path="$1"; shift
+  curl -sk -m 60 "$ZERO_BASE/jira/wiki/$path" -H "x-username: $ZERO_USER" "$@"
 }
 
 # ---- inference (heavy — see SKILL.md before using) -------------------------

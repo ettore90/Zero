@@ -1,6 +1,6 @@
 ---
 name: zero-gateway
-description: Call the local Zero backend's HTTP API (https://localhost/zero/api) to read and write its data and drive its server-side capabilities — agents, sessions, chat history, memory store, filesystem, usage/cost, alerts, workflow runs, git — plus a bundled helpers.sh of ready-made shell functions. Use when asked to hit a Zero endpoint, query or modify anything living in Zero's SQLite DB, inspect its agents/models/usage, reach a path only the container can see, or add a new endpoint to Zero's backend.
+description: Call the local Zero backend's HTTP API (https://localhost/zero/api) to read and write its data and drive its server-side capabilities — agents, sessions, chat history, memory store, filesystem, usage/cost, alerts, workflow runs, git — plus a credential-injecting Atlassian passthrough (Jira AND Confluence, the working route now that the Atlassian MCP 403s on this instance) and a bundled helpers.sh of ready-made shell functions. Use when asked to hit a Zero endpoint, read or search Confluence pages/spaces, query or modify anything living in Zero's SQLite DB, inspect its agents/models/usage, reach a path only the container can see, or add a new endpoint to Zero's backend.
 ---
 
 # Zero backend API
@@ -153,14 +153,51 @@ omit it entirely. Treat token counts as real, cost as advisory.
 
 ### Integrations
 
-**Jira** — `ALL /jira/rest/*` is a credential-injecting passthrough to the Jira Cloud REST API:
-write the real Jira path, send no token, Zero attaches the stored one. **For anything Jira, load
-the `jira-api` skill** — it carries the endpoints, the JQL and pagination traps, and the limits.
+**Atlassian (Jira + Confluence)** — `ALL /jira/rest/*` and `ALL /jira/wiki/*` are one
+credential-injecting passthrough to `stefaninisophiedelivery.atlassian.net`: write the real
+Atlassian path, send no token, Zero attaches the stored one. Confluence Cloud sits under `/wiki`
+on that same host and accepts the same credential, which is why it rides the same mount.
+
+| Surface | URL |
+|---|---|
+| Jira | `https://localhost/zero/api/jira/rest/<path>` |
+| Confluence v1 | `https://localhost/zero/api/jira/wiki/rest/api/<path>` |
+| Confluence v2 | `https://localhost/zero/api/jira/wiki/api/v2/<path>` |
+
+**Prefer this over the Atlassian MCP, which is inoperative on this instance.** The MCP
+authenticates fine and then answers `403 The app is not installed on this instance` to
+Confluence, Jira and Rovo search alike. Re-running `/login` does not fix it — it needs an
+Atlassian admin to install the app. (The `sophie-investigation` skill still sends you to the MCP
+for Confluence; it is stale on that point.)
+
+**For anything Jira, load the `jira-api` skill** — it carries the endpoints, the JQL and
+pagination traps, and the limits. Confluence calls verified through this mount:
+
+```bash
+zero_confluence 'rest/api/space?limit=5&type=global'
+zero_confluence 'api/v2/spaces?keys=SNS'
+zero_confluence 'rest/api/content/search?cql=space%3DSNS%20AND%20type%3Dpage&limit=15'
+zero_confluence 'rest/api/content/<id>?expand=body.view,version'     # page with body
+```
+
+`body.view.value` is **HTML**, and a page built with the newer Confluence table macro can come
+back with no `<tr>` at all — so strip the tags and read the text rather than parsing table rows,
+or a real table will look empty.
+
 The credential is stored **per user**, so `x-username: ettore` is not optional here the way it is
 on read-only routes — without it the passthrough 401s with "No Jira credential available" even
-though the secret is stored. Use `zero_jira` from `helpers.sh` and the header is handled for you.
+though the secret is stored. An unsupported prefix 400s and names the ones allowed. Use
+`zero_jira` / `zero_confluence` from `helpers.sh` and the header is handled for you.
 Zero also has `GET /jira/queue` (persists an issue snapshot to SQLite, returns counts) and
 `POST /jira/action` (six write ops); neither carries `checkLocalAccess`, the passthrough does.
+
+Shape of it, if you extend the passthrough: `services/jiraProxyService.js` validates the path
+against `ALLOWED_PATH_PREFIXES = ['rest/', 'wiki/rest/', 'wiki/api/']`, and
+`routes/jira.routes.js` mounts `['/jira/rest/*', '/jira/wiki/*']`, deriving the prefix from the
+mount the caller hit. **Both halves are load-bearing** — widening only the validator leaves the
+route unreachable and Zero answers its own 404. Adding Confluence did not move the security
+posture: the host stays a constant, a caller still cannot supply `Authorization`, and the `..`
+check (including `%2e%2e`) runs before the prefix check. (Commits `b540947`, `c3b91f5`.)
 
 `POST /transcribe` (raw `audio/*` body, 10 MB cap) ·
 `POST /llm/complete` and `/ollama/*` (raw local-Ollama passthroughs, no DB keys) ·
@@ -179,8 +216,25 @@ Zero is **the** place to add a capability this skill lacks — never stand up a 
 1. Thin router in `routes/<topic>.routes.js`; real logic in `services/`.
 2. Register it in `app.js` (mounted under both `/api` and `${BASE_PATH}/api`).
 3. Anything reaching SQLite must not be statically imported before `initDb()` — see the ESM-hoisting comment in `server.js`.
-4. **Rebuild the container.** `zero` runs the built image, so a code change on disk is not live until rebuild/restart.
+4. **Rebuild the container.** `zero` runs the built image, so a code change on disk is not live until rebuild/restart. Deploy with `bash /home/ettore/Software/Uby/zero-deploy.sh`.
 5. Wrap the new route in `helpers.sh` and document it here, in the same change.
+
+Two traps around that deploy, both of which cost real time:
+
+- **`zero-deploy.sh` builds from `origin/main`, not from your disk.** It hard-resets the
+  `zero-source` mirror to `origin/main` before building, so an uncommitted edit — or a commit
+  sitting on a branch — is silently ignored and you deploy the old code. The change has to be
+  **pushed to main** to ship.
+- **The container writes into this repo's `.git` as root** (it mounts `/uby` read-write and runs
+  as root), which breaks your next commit with
+  `insufficient permission for adding an object to repository database`. Fix:
+
+  ```bash
+  sudo chown -R ettore:ettore /home/ettore/Software/Uby/zero/.git
+  ```
+
+  It prompts for a password, so Claude cannot do it — ask Ettore to run it. Expect a recurrence
+  after each deploy.
 
 **Scope boundary:** Zero is personal and lives only on this machine. Anything intended for the
 user's Stefanini team belongs in the **SAMS plugin**, not here — confirm before building shared
