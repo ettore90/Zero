@@ -41,7 +41,17 @@ const PASSTHROUGH_RESPONSE_HEADERS = [
 // reach them. Authorization is deliberately absent and must stay absent -- it
 // is built from the stored credential below, and a caller-supplied one would
 // turn this into a relay for someone else's token.
-const PASSTHROUGH_REQUEST_HEADERS = ['x-experimentalapi'];
+// X-Atlassian-Token is the XSRF opt-out that every attachment upload (Jira
+// issue attachments, Confluence child/attachment) requires.
+const PASSTHROUGH_REQUEST_HEADERS = ['x-experimentalapi', 'x-atlassian-token'];
+
+// The only non-JSON body the passthrough forwards: file uploads. Anything else
+// raw would let a caller push arbitrary content types at the Atlassian API.
+const MULTIPART_CONTENT_TYPE = /^multipart\/form-data;\s*boundary=/i;
+
+export function isMultipartContentType(value = '') {
+  return MULTIPART_CONTENT_TYPE.test(String(value));
+}
 
 /**
  * Picks the forwardable headers out of a caller's raw header object. Filtering
@@ -156,8 +166,12 @@ export function normalizeJiraPath(rawPath = '') {
 /**
  * Forwards one request to Jira. Never returns or logs the credential.
  * Resolves to { status, headers, body } where body is a Buffer.
+ *
+ * A Buffer body is forwarded byte for byte only when contentType is
+ * multipart/form-data (file uploads); its boundary must reach Atlassian
+ * unchanged, so the caller's Content-Type is kept. Every other body is JSON.
  */
-export async function forwardToJira({ method = 'GET', path, query = '', body, token, requestHeaders = {} }) {
+export async function forwardToJira({ method = 'GET', path, query = '', body, token, requestHeaders = {}, contentType = '' }) {
   const upper = String(method).toUpperCase();
   if (!ALLOWED_METHODS.has(upper)) {
     return { status: 405, headers: {}, body: Buffer.from(JSON.stringify({ error: `method ${upper} not allowed` })) };
@@ -169,6 +183,10 @@ export async function forwardToJira({ method = 'GET', path, query = '', body, to
 
   try {
     const hasBody = body !== undefined && body !== null && upper !== 'GET' && upper !== 'DELETE';
+    const multipart = hasBody && Buffer.isBuffer(body) && isMultipartContentType(contentType);
+    if (hasBody && Buffer.isBuffer(body) && !multipart) {
+      return { status: 415, headers: {}, body: Buffer.from(JSON.stringify({ error: 'raw bodies are only forwarded as multipart/form-data' })) };
+    }
     const response = await fetch(url, {
       method: upper,
       headers: {
@@ -178,9 +196,11 @@ export async function forwardToJira({ method = 'GET', path, query = '', body, to
         ...pickForwardableHeaders(requestHeaders),
         Authorization: buildAuthorizationHeader(token),
         Accept: 'application/json',
-        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(hasBody ? { 'Content-Type': multipart ? contentType : 'application/json' } : {}),
       },
-      body: hasBody ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined,
+      body: !hasBody ? undefined
+        : multipart ? body
+          : (typeof body === 'string' ? body : JSON.stringify(body)),
       signal: controller.signal,
     });
 

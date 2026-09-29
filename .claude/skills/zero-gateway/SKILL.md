@@ -184,6 +184,20 @@ zero_confluence 'rest/api/content/<id>?expand=body.view,version'     # page with
 back with no `<tr>` at all — so strip the tags and read the text rather than parsing table rows,
 or a real table will look empty.
 
+**File uploads** (Confluence page attachments, Jira issue attachments) go through the same
+passthrough as `multipart/form-data`. Atlassian requires the XSRF opt-out header
+`X-Atlassian-Token: no-check`, which the passthrough forwards:
+
+```bash
+zero_attach_confluence <pageId> diagram.png diagram.drawio   # PUT = create or new version
+zero_attach_jira ABC-1 app.log
+```
+
+Only multipart bodies are forwarded raw; any other non-JSON body gets a 415 from Zero. Uploads are
+capped at 50 MB per request. Reference an attachment in a page body with
+`<ac:image><ri:attachment ri:filename="diagram.png"/></ac:image>`. The image appears as soon as
+a file with that name is attached, so the page can be written before the upload.
+
 The credential is stored **per user**, so `x-username: ettore` is not optional here the way it is
 on read-only routes — without it the passthrough 401s with "No Jira credential available" even
 though the secret is stored. An unsupported prefix 400s and names the ones allowed. Use

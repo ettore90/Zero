@@ -166,6 +166,30 @@ zero_confluence() {
   curl -sk -m 60 "$ZERO_BASE/jira/wiki/$path" -H "x-username: $ZERO_USER" "$@"
 }
 
+# zero_attach_confluence <pageId> <file>...  -- one PUT per file, so an existing
+# attachment with the same name gets a new version instead of a 400.
+zero_attach_confluence() {
+  local page="$1"; shift
+  local f
+  for f in "$@"; do
+    curl -sk -m 120 -X PUT "$ZERO_BASE/jira/wiki/rest/api/content/$page/child/attachment" \
+      -H "x-username: $ZERO_USER" -H 'X-Atlassian-Token: no-check' \
+      -F "file=@$f" -F 'minorEdit=true' \
+      | jq -r --arg f "$f" '"\($f)\t" + ((.results[0].id // .message // .error // "?") | tostring)'
+  done
+}
+
+# zero_attach_jira <issueKey> <file>...
+zero_attach_jira() {
+  local key="$1"; shift
+  local f
+  for f in "$@"; do
+    curl -sk -m 120 -X POST "$ZERO_BASE/jira/rest/api/3/issue/$key/attachments" \
+      -H "x-username: $ZERO_USER" -H 'X-Atlassian-Token: no-check' -F "file=@$f" \
+      | jq -r --arg f "$f" '"\($f)\t" + ((.[0].id // .errorMessages[0] // .error // "?") | tostring)'
+  done
+}
+
 # ---- inference (heavy — see SKILL.md before using) -------------------------
 # Runs the full agent loop with all server-side tools enabled. ~3.4k prompt
 # tokens of overhead per call. Not a plain "ask a model" endpoint.

@@ -15,7 +15,7 @@
 //   collection is blocked intentionally.
 // =============================================================================
 
-import { Router } from 'express';
+import express, { Router } from 'express';
 import https from 'https';
 import { getDb } from '../db.js';
 import { checkLocalAccess } from '../middlewares/localAccess.js';
@@ -25,6 +25,7 @@ import {
   buildAuthorizationHeader,
   normalizeJiraPath,
   forwardToJira,
+  isMultipartContentType,
 } from '../services/jiraProxyService.js';
 
 const router = Router();
@@ -1868,14 +1869,26 @@ router.post('/jira/action', async (req, res) => {
 //        -H 'x-username: ettore' -H 'Content-Type: application/json' \
 //        -d '{"body":{"type":"doc","version":1,"content":[]}}'
 //
+// File uploads go through too, as multipart/form-data with the Atlassian XSRF
+// opt-out header (Confluence page attachment, Jira issue attachment):
+//   curl -sk -X PUT 'https://localhost/zero/api/jira/wiki/rest/api/content/<pageId>/child/attachment' \
+//        -H 'x-username: ettore' -H 'X-Atlassian-Token: no-check' -F 'file=@diagram.png'
+//   curl -sk -X POST https://localhost/zero/api/jira/rest/api/3/issue/ABC-1/attachments \
+//        -H 'x-username: ettore' -H 'X-Atlassian-Token: no-check' -F 'file=@log.txt'
+//
 // Method, query string, body and upstream status are passed through unchanged.
 // Request headers are NOT: only the allowlist in jiraProxyService reaches Jira
-// (today just X-ExperimentalApi, which some JSM endpoints require), so a caller
+// (X-ExperimentalApi, which some JSM endpoints require, and X-Atlassian-Token,
+// which attachment uploads require), so a caller
 // can never supply its own Authorization.
 // The host is a constant and the path must be under rest/ or wiki/, so unlike
 // POST /api/proxy nothing in the request can retarget the call.
 // ---------------------------------------------------------------------------
-router.all(['/jira/rest/*', '/jira/wiki/*'], checkLocalAccess, async (req, res) => {
+// express.json (app-wide) skips multipart, so uploads are read raw here and
+// forwarded byte for byte; the boundary in Content-Type must survive the hop.
+const rawMultipart = express.raw({ type: 'multipart/form-data', limit: '50mb' });
+
+router.all(['/jira/rest/*', '/jira/wiki/*'], checkLocalAccess, rawMultipart, async (req, res) => {
   const token = getJiraToken(req);
   if (!token) {
     return res.status(401).json({ error: describeMissingCredential(req) });
@@ -1890,7 +1903,9 @@ router.all(['/jira/rest/*', '/jira/wiki/*'], checkLocalAccess, async (req, res) 
   const queryIndex = req.originalUrl.indexOf('?');
   const query = queryIndex === -1 ? '' : req.originalUrl.slice(queryIndex + 1);
 
-  const hasBody = req.body && Object.keys(req.body).length > 0;
+  const contentType = req.headers['content-type'] || '';
+  const multipart = Buffer.isBuffer(req.body) && isMultipartContentType(contentType);
+  const hasBody = multipart ? req.body.length > 0 : req.body && Object.keys(req.body).length > 0;
   const result = await forwardToJira({
     method: req.method,
     path,
@@ -1898,6 +1913,7 @@ router.all(['/jira/rest/*', '/jira/wiki/*'], checkLocalAccess, async (req, res) 
     body: hasBody ? req.body : undefined,
     token,
     requestHeaders: req.headers,
+    contentType: multipart ? contentType : '',
   });
 
   res.status(result.status);
